@@ -1,16 +1,17 @@
 import { ipcMain, type BrowserWindow } from 'electron';
 import type { ChatCompletionRequest, StreamChunk } from '@shared/types';
 import { runMockChatStream } from './mockEngine';
+import { runLiveExaoneStream } from './exaoneClient';
+import { clearApiKey, hasStoredApiKey, saveApiKey } from './keyStore';
 
 const activeControllers = new Map<string, AbortController>();
 
 export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): void {
-  ipcMain.handle('exaone:has-key', async () => false);
-  ipcMain.handle('exaone:save-key', async () => ({
-    ok: false,
-    error: '키 저장소 기능은 Step 4에서 연결됩니다.'
-  }));
-  ipcMain.handle('exaone:clear-key', async () => undefined);
+  ipcMain.handle('exaone:has-key', async () => hasStoredApiKey());
+  ipcMain.handle('exaone:save-key', async (_event, apiKey: string) =>
+    saveApiKey(apiKey)
+  );
+  ipcMain.handle('exaone:clear-key', async () => clearApiKey());
 
   ipcMain.handle(
     'exaone:start-stream',
@@ -35,12 +36,7 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
           if (req.runMode === 'demo') {
             await runMockChatStream(req, emit, controller.signal);
           } else {
-            emit({
-              type: 'error',
-              status: 400,
-              message:
-                'Live API 직접 연동은 Step 4에서 활성화됩니다. 현재는 Demo Mode로 테스트해 주세요.'
-            });
+            await runLiveExaoneStream(req, emit, controller.signal);
           }
         } finally {
           if (activeControllers.get(req.requestId) === controller) {

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Code2 } from 'lucide-react';
 import { Header } from '@renderer/components/layout/Header';
+import { ApiKeyModal } from '@renderer/components/layout/ApiKeyModal';
 import { StudioLayout } from '@renderer/components/studio/StudioLayout';
 import { useAppStore } from '@renderer/store/useAppStore';
 
@@ -34,6 +35,8 @@ export function App() {
           </section>
         )}
       </main>
+
+      <ApiKeyModal />
     </div>
   );
 }

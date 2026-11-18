@@ -46,7 +46,7 @@ function createRequestId(): string {
 }
 
 export function ChatPanel() {
-  const { runMode, setRateLimit } = useAppStore();
+  const { runMode, hasApiKey, setApiKeyModalOpen, setRateLimit } = useAppStore();
   const {
     sessions,
     activeSessionId,
@@ -141,6 +141,14 @@ export function ChatPanel() {
   const handleSubmit = async (overridePrompt?: string) => {
     const text = (overridePrompt ?? input).trim();
     if (!text || isStreaming || !activeSession) return;
+
+    if (runMode === 'live' && !hasApiKey) {
+      setErrorMessage(
+        'Live API 모드에서는 K-EXAONE API 키가 필요합니다. 키를 등록하거나 Demo Mode로 전환해 주세요.'
+      );
+      setApiKeyModalOpen(true);
+      return;
+    }
 
     const userMessage = addUserMessage(text);
     if (!overridePrompt) {
