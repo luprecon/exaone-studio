@@ -4,7 +4,8 @@ import {
   FlaskConical,
   Radio,
   KeyRound,
-  Activity
+  Activity,
+  PlayCircle
 } from 'lucide-react';
 import { useAppStore } from '@renderer/store/useAppStore';
 
@@ -16,7 +17,8 @@ export function Header() {
     rateLimit,
     setAppMode,
     setRunMode,
-    setApiKeyModalOpen
+    setApiKeyModalOpen,
+    setScenariosModalOpen
   } = useAppStore();
 
   const handleToggleRunMode = (nextMode: 'demo' | 'live') => {
@@ -74,8 +76,17 @@ export function Header() {
         </button>
       </nav>
 
-      {/* 우측 실행 모드, Rate Limit 배지, API Key 버튼 */}
+      {/* 우측 데모 시나리오, 실행 모드, Rate Limit 배지, API Key 버튼 */}
       <div className="flex items-center gap-2.5">
+        <button
+          type="button"
+          onClick={() => setScenariosModalOpen(true)}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-xs font-medium text-amber-300 transition-colors cursor-pointer"
+        >
+          <PlayCircle className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">데모 시나리오</span>
+        </button>
+
         {rateLimit && rateLimit.dayRemaining !== undefined && (
           <div
             title="K-EXAONE 일일 잔여 호출량"

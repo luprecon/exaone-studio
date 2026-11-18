@@ -35,6 +35,7 @@ interface WorkspaceState {
   maxAgentSteps: number;
   activeAgentRequestId: string | null;
   pendingWorkspacePrompt: string;
+  pendingAutoRun: { prompt: string; scenarioId?: string } | null;
 
   openFolder: () => Promise<boolean>;
   openSampleFolder: () => Promise<boolean>;
@@ -47,6 +48,9 @@ interface WorkspaceState {
   setErrorMessage: (message: string | null) => void;
 
   setPendingWorkspacePrompt: (prompt: string) => void;
+  setPendingAutoRun: (
+    task: { prompt: string; scenarioId?: string } | null
+  ) => void;
   setAgentMessages: (
     updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])
   ) => void;
@@ -74,6 +78,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   maxAgentSteps: 5,
   activeAgentRequestId: null,
   pendingWorkspacePrompt: '',
+  pendingAutoRun: null,
 
   openFolder: async () => {
     try {
@@ -236,6 +241,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setErrorMessage: (errorMessage) => set({ errorMessage }),
   setPendingWorkspacePrompt: (pendingWorkspacePrompt) =>
     set({ pendingWorkspacePrompt }),
+  setPendingAutoRun: (pendingAutoRun) => set({ pendingAutoRun }),
 
   setAgentMessages: (updater) =>
     set((state) => ({

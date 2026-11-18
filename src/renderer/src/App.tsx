@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Header } from '@renderer/components/layout/Header';
 import { ApiKeyModal } from '@renderer/components/layout/ApiKeyModal';
+import { DemoScenariosModal } from '@renderer/components/layout/DemoScenariosModal';
 import { StudioLayout } from '@renderer/components/studio/StudioLayout';
 import { WorkspaceLayout } from '@renderer/components/workspace/WorkspaceLayout';
 import { useAppStore } from '@renderer/store/useAppStore';
@@ -21,6 +22,7 @@ export function App() {
       </main>
 
       <ApiKeyModal />
+      <DemoScenariosModal />
     </div>
   );
 }

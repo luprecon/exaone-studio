@@ -41,8 +41,10 @@ export function AgentChatPanel() {
     isAgentRunning,
     agentStep,
     pendingWorkspacePrompt,
+    pendingAutoRun,
     openSampleFolder,
     setPendingWorkspacePrompt,
+    setPendingAutoRun,
     setErrorMessage,
     resetAgentMessages
   } = useWorkspaceStore();
@@ -67,7 +69,10 @@ export function AgentChatPanel() {
     agentMessages[agentMessages.length - 1]?.toolCalls?.length
   ]);
 
-  const handleRunAgent = async (overridePrompt?: string) => {
+  const handleRunAgent = async (
+    overridePrompt?: string,
+    scenarioId?: string
+  ) => {
     const text = (overridePrompt ?? input).trim();
     if (!text || isAgentRunning) return;
 
@@ -95,9 +100,18 @@ export function AgentChatPanel() {
       userPrompt: text,
       runMode,
       reasoningEffort,
+      scenarioId,
       signal: controller.signal
     });
   };
+
+  useEffect(() => {
+    if (pendingAutoRun && !isAgentRunning) {
+      const task = pendingAutoRun;
+      setPendingAutoRun(null);
+      void handleRunAgent(task.prompt, task.scenarioId);
+    }
+  }, [pendingAutoRun, isAgentRunning]);
 
   const handleStop = () => {
     abortRef.current?.abort();

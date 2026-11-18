@@ -84,14 +84,19 @@ export function ParameterPanel({ onOpenExportModal }: ParameterPanelProps) {
     );
   }, [activeSession, draftInput]);
 
+  const displayInputTokens = Math.max(
+    estimatedInputTokens,
+    lastUsage?.promptTokens ?? 0
+  );
+
   const clampedMaxTokens = useMemo(
-    () => clampMaxTokens(maxTokens, estimatedInputTokens),
-    [maxTokens, estimatedInputTokens]
+    () => clampMaxTokens(maxTokens, displayInputTokens),
+    [maxTokens, displayInputTokens]
   );
 
   const usageMetrics = useMemo(
-    () => getContextUsageMetrics(estimatedInputTokens, maxTokens),
-    [estimatedInputTokens, maxTokens]
+    () => getContextUsageMetrics(displayInputTokens, maxTokens),
+    [displayInputTokens, maxTokens]
   );
 
   const schemaValidation = useMemo(() => {
@@ -247,7 +252,7 @@ export function ParameterPanel({ onOpenExportModal }: ParameterPanelProps) {
               512K Context Window
             </span>
             <span className="font-mono text-zinc-400">
-              {estimatedInputTokens.toLocaleString()} /{' '}
+              {displayInputTokens.toLocaleString()} /{' '}
               {MAX_CONTEXT_TOKENS.toLocaleString()}
             </span>
           </div>
@@ -256,7 +261,7 @@ export function ParameterPanel({ onOpenExportModal }: ParameterPanelProps) {
             <div
               className={`h-full transition-all duration-300 ${barColorClass}`}
               style={{ width: `${Math.max(1.5, usageMetrics.inputPercent)}%` }}
-              title={`예상 입력: ${estimatedInputTokens.toLocaleString()} 토큰`}
+              title={`입력 토큰: ${displayInputTokens.toLocaleString()} 토큰`}
             />
             <div
               className="h-full bg-indigo-500/25 transition-all duration-300"

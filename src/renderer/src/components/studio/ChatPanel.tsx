@@ -57,12 +57,14 @@ export function ChatPanel() {
     responseSchemaJson,
     activeScenarioId,
     draftInput,
+    pendingAutoPrompt,
     isStreaming,
     activeRequestId,
     activeAssistantMessageId,
     errorMessage,
     updateSystemPrompt,
     setDraftInput,
+    clearPendingAutoPrompt,
     addUserMessage,
     startAssistantStream,
     appendThinking,
@@ -212,6 +214,14 @@ export function ChatPanel() {
       void handleSubmit();
     }
   };
+
+  useEffect(() => {
+    if (pendingAutoPrompt && !isStreaming) {
+      const promptToRun = pendingAutoPrompt;
+      clearPendingAutoPrompt();
+      void handleSubmit(promptToRun);
+    }
+  }, [pendingAutoPrompt, isStreaming]);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-zinc-950">

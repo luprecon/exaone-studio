@@ -46,4 +46,16 @@ LG AI연구원의 **K-EXAONE 2.5 API(`k-exaone_v2.5`)**를 기반으로 Google A
 - [x] **Step 5:** Studio 파라미터 제어 패널(512K·JSON Schema·코드 Export) 완성
 - [x] **Step 6:** Workspace 실제 로컬 폴더 탐색기 및 Monaco 코드 에디터 연동
 - [x] **Step 7:** 로컬 파일 제어 에이전트 루프(`write_file`, `update_file`) 및 실시간 프리뷰 구현
-- [ ] **Step 8:** 프리셋 데모 시나리오 3종 탑재 및 Windows 실행 파일(`.exe`) 패키징 구성
+- [x] **Step 8:** 프리셋 데모 시나리오 3종 탑재 및 Windows 실행 파일(`.exe`) 패키징 구성
+
+---
+
+## 실행 및 패키징 방법
+
+- **의존성 설치:** `npm install`
+- **개발 모드 실행:** `npm run dev` (독립 Electron 데스크톱 창 기동 및 HMR 지원)
+- **타입 검증 및 번들 빌드:** `npm run typecheck && npm run build`
+- **Windows 포터블 `.exe` 패키징:** `npm run dist:win` (`dist/EXAONE-Studio-0.1.0-portable.exe` 단독 실행 파일 생성)
+- **즉시 체험 안내:**
+  - 별도 API 키 미입력 상태에서 상단 `데모 시나리오` 버튼을 통한 3종 프리셋 즉시 시연 가능
+  - 상단 `API Key` 메뉴에서 K-EXAONE 2.5 키 등록 후 `Live API` 모드 전환을 통한 실서버 연동 지원

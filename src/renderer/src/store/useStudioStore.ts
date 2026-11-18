@@ -38,6 +38,7 @@ interface StudioState {
   responseSchemaJson: string;
   activeScenarioId: string | undefined;
   draftInput: string;
+  pendingAutoPrompt: string | null;
   isStreaming: boolean;
   activeRequestId: string | null;
   activeAssistantMessageId: string | null;
@@ -51,6 +52,7 @@ interface StudioState {
     reasoningEffort?: ReasoningEffort;
     scenarioId?: string;
     draftInput?: string;
+    autoRunPrompt?: string;
   }) => string;
   selectSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
@@ -62,6 +64,7 @@ interface StudioState {
   setResponseSchemaJson: (schemaJson: string) => void;
   setActiveScenarioId: (scenarioId: string | undefined) => void;
   setDraftInput: (text: string) => void;
+  clearPendingAutoPrompt: () => void;
   setErrorMessage: (message: string | null) => void;
   setLastUsage: (usage: TokenUsage | null) => void;
 
@@ -85,6 +88,7 @@ export const useStudioStore = create<StudioState>()(
       responseSchemaJson: '',
       activeScenarioId: undefined,
       draftInput: '',
+      pendingAutoPrompt: null,
       isStreaming: false,
       activeRequestId: null,
       activeAssistantMessageId: null,
@@ -108,6 +112,7 @@ export const useStudioStore = create<StudioState>()(
           reasoningEffort: preset?.reasoningEffort ?? state.reasoningEffort,
           activeScenarioId: preset?.scenarioId,
           draftInput: preset?.draftInput ?? '',
+          pendingAutoPrompt: preset?.autoRunPrompt ?? null,
           errorMessage: null,
           lastUsage: null
         }));
@@ -118,6 +123,7 @@ export const useStudioStore = create<StudioState>()(
         set({
           activeSessionId: sessionId,
           activeScenarioId: undefined,
+          lastUsage: null,
           errorMessage: null
         }),
 
@@ -177,6 +183,7 @@ export const useStudioStore = create<StudioState>()(
         set({ responseSchemaJson }),
       setActiveScenarioId: (activeScenarioId) => set({ activeScenarioId }),
       setDraftInput: (draftInput) => set({ draftInput }),
+      clearPendingAutoPrompt: () => set({ pendingAutoPrompt: null }),
       setErrorMessage: (errorMessage) => set({ errorMessage }),
       setLastUsage: (lastUsage) => set({ lastUsage }),
 

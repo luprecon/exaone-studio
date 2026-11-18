@@ -6,11 +6,13 @@ interface AppState {
   runMode: RunMode;
   hasApiKey: boolean;
   isApiKeyModalOpen: boolean;
+  isScenariosModalOpen: boolean;
   rateLimit: RateLimitInfo | null;
   setAppMode: (mode: AppMode) => void;
   setRunMode: (mode: RunMode) => void;
   setHasApiKey: (hasKey: boolean) => void;
   setApiKeyModalOpen: (open: boolean) => void;
+  setScenariosModalOpen: (open: boolean) => void;
   setRateLimit: (info: RateLimitInfo | null) => void;
   syncApiKeyStatus: () => Promise<void>;
 }
@@ -20,11 +22,13 @@ export const useAppStore = create<AppState>((set) => ({
   runMode: 'demo',
   hasApiKey: false,
   isApiKeyModalOpen: false,
+  isScenariosModalOpen: false,
   rateLimit: null,
   setAppMode: (appMode) => set({ appMode }),
   setRunMode: (runMode) => set({ runMode }),
   setHasApiKey: (hasApiKey) => set({ hasApiKey }),
   setApiKeyModalOpen: (isApiKeyModalOpen) => set({ isApiKeyModalOpen }),
+  setScenariosModalOpen: (isScenariosModalOpen) => set({ isScenariosModalOpen }),
   setRateLimit: (rateLimit) => set({ rateLimit }),
   syncApiKeyStatus: async () => {
     try {

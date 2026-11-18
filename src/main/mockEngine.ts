@@ -52,7 +52,7 @@ async function emitToolCallStream(
   };
   emit({ type: 'tool_call', delta: firstDelta });
 
-  for (const piece of splitIntoChunks(argsJson, 28, 64)) {
+  for (const piece of splitIntoChunks(argsJson, 32, 72)) {
     if (signal.aborted) return;
     emit({
       type: 'tool_call',
@@ -61,20 +61,24 @@ async function emitToolCallStream(
         argumentsChunk: piece
       }
     });
-    await sleepWithAbort(14, signal);
+    await sleepWithAbort(12, signal);
   }
 }
 
-function buildWorkspaceMockArtifacts(userPrompt: string): Array<{
+function buildWorkspaceMockArtifacts(
+  userPrompt: string,
+  scenarioId?: string
+): Array<{
   tool: 'write_file' | 'update_file';
   args: Record<string, unknown>;
 }> {
   const lower = userPrompt.toLowerCase();
   const isTodoOrNote =
-    lower.includes('할일') ||
-    lower.includes('todo') ||
-    lower.includes('메모') ||
-    lower.includes('체크리스트');
+    scenarioId !== 'scenario-workspace-dashboard' &&
+    (lower.includes('할일') ||
+      lower.includes('todo') ||
+      lower.includes('메모') ||
+      lower.includes('체크리스트'));
 
   if (isTodoOrNote) {
     return [
@@ -258,7 +262,15 @@ render();
           <span class="tag">K-EXAONE 2.5 Telemetry</span>
           <h1>실시간 추론·토큰 모니터링</h1>
         </div>
-        <button id="simulate-btn" type="button">요청 시뮬레이션</button>
+        <div class="actions">
+          <select id="effort-filter">
+            <option value="ALL">전체 Effort</option>
+            <option value="MAX">MAX</option>
+            <option value="HIGH">HIGH</option>
+            <option value="LOW">LOW</option>
+          </select>
+          <button id="simulate-btn" type="button">요청 시뮬레이션</button>
+        </div>
       </header>
 
       <section class="kpis">
@@ -269,13 +281,13 @@ render();
         </article>
         <article class="kpi-card">
           <span class="label">Reasoning Effort</span>
-          <strong id="kpi-effort">HIGH</strong>
-          <span class="sub" id="kpi-latency">평균 1.42s 추론</span>
+          <strong id="kpi-effort">MAX</strong>
+          <span class="sub" id="kpi-latency">평균 2.18s 추론</span>
         </article>
         <article class="kpi-card">
           <span class="label">Daily Quota Left</span>
           <strong id="kpi-quota">92 / 100</strong>
-          <span class="sub">BYOK 로컬 보호 활성</span>
+          <span class="sub" id="kpi-status">BYOK 로컬 보호 활성</span>
         </article>
       </section>
 
@@ -310,6 +322,15 @@ body {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+.actions { display: flex; gap: 8px; align-items: center; }
+select {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  color: #f4f4f5;
+  font-size: 12px;
 }
 .tag {
   display: inline-block;
@@ -374,6 +395,7 @@ button:hover { background: #6366f1; }
       args: {
         path: 'app.js',
         content: `const btn = document.getElementById('simulate-btn');
+const filterSelect = document.getElementById('effort-filter');
 const contextEl = document.getElementById('kpi-context');
 const barFill = document.getElementById('bar-fill');
 const effortEl = document.getElementById('kpi-effort');
@@ -387,13 +409,20 @@ let step = 0;
 
 const history = [
   { mode: 'MAX', tokens: '248,400', latency: '2.18s' },
-  { mode: 'HIGH', tokens: '42,180', latency: '1.35s' }
+  { mode: 'HIGH', tokens: '42,180', latency: '1.35s' },
+  { mode: 'LOW', tokens: '8,420', latency: '0.49s' }
 ];
 
 function renderLogs() {
   if (!logList) return;
-  logList.innerHTML = history
-    .slice(0, 5)
+  const activeFilter = filterSelect ? filterSelect.value : 'ALL';
+  const filtered =
+    activeFilter === 'ALL'
+      ? history
+      : history.filter((item) => item.mode === activeFilter);
+
+  logList.innerHTML = filtered
+    .slice(0, 6)
     .map(
       (item) =>
         \`<li><span>[\${item.mode}] 토큰 \${item.tokens}</span><span style="color:#a5b4fc">\${item.latency}</span></li>\`
@@ -401,12 +430,16 @@ function renderLogs() {
     .join('');
 }
 
+if (filterSelect) {
+  filterSelect.addEventListener('change', renderLogs);
+}
+
 if (btn) {
   btn.addEventListener('click', () => {
     step += 1;
     quota = Math.max(1, quota - 1);
     const mode = efforts[step % efforts.length];
-    const used = 35000 + ((step * 67891) % 380000);
+    const used = 35000 + ((step * 67891) % 410000);
     const pct = Math.min(96, Math.round((used / 524288) * 100));
     const latency = mode === 'MAX' ? '2.45s' : mode === 'HIGH' ? '1.28s' : '0.54s';
 
@@ -424,6 +457,15 @@ if (btn) {
 renderLogs();
 `
       }
+    },
+    {
+      tool: 'update_file',
+      args: {
+        path: 'index.html',
+        target: '<span class="sub" id="kpi-status">BYOK 로컬 보호 활성</span>',
+        replacement:
+          '<span class="sub" id="kpi-status">BYOK 로컬 보호 · 실시간 필터 활성</span>'
+      }
     }
   ];
 }
@@ -438,26 +480,26 @@ async function runWorkspaceMockStream(
   try {
     if (latestMessage?.role === 'tool') {
       const thinking = [
-        `[도구 실행 결과 확인]`,
-        `- 로컬 파일 시스템 쓰기 및 갱신 상태 검증 완료`,
-        `- index.html, styles.css, app.js 연동 정상 확인 → 사용자 요약 보고 작성`
+        `[도구 실행 결과 검증]`,
+        `- write_file 및 update_file 디스크 반영 결과 확인`,
+        `- index.html / styles.css / app.js 상호 참조 무결성 검증 완료`
       ].join('\n');
 
       for (const piece of splitIntoChunks(thinking, 10, 22)) {
         if (signal.aborted) return;
         emit({ type: 'thinking', text: piece });
-        await sleepWithAbort(22, signal);
+        await sleepWithAbort(20, signal);
       }
 
       const summary = [
-        `### 워크스페이스 파일 반영 완료`,
+        `### 워크스페이스 파일 생성 및 패치 완료`,
         ``,
-        `로컬 폴더에 다음 파일을 생성·업데이트하고 우측 프리뷰에 즉시 반영했습니다.`,
-        `- \`index.html\`: 시맨틱 레이아웃 및 인터랙티브 UI 마크업 구성`,
-        `- \`styles.css\`: 다크 테마 카드 레이아웃 및 반응형 스타일 적용`,
-        `- \`app.js\`: 실시간 상태 업데이트 및 버튼 이벤트 핸들러 연결`,
+        `로컬 폴더에 다음 파일을 순차 생성·수정하고 우측 프리뷰에 즉시 반영했습니다.`,
+        `- \`index.html\`: 모니터링 대시보드 레이아웃 + Effort 필터 + \`update_file\` 상태 배지 패치`,
+        `- \`styles.css\`: 다크 그라디언트 대시보드 및 KPI 진행 바 스타일`,
+        `- \`app.js\`: Effort 필터링 및 실시간 시뮬레이션 로그 추가 로직`,
         ``,
-        `우측 **실시간 프리뷰**에서 버튼을 클릭해 동작을 확인하거나, 중앙 Monaco 에디터에서 코드를 직접 수정해 보세요.`
+        `우측 **실시간 프리뷰**에서 \`요청 시뮬레이션\` 버튼과 드롭다운 필터를 직접 조작해 보세요.`
       ].join('\n');
 
       for (const piece of splitIntoChunks(summary, 10, 22)) {
@@ -469,10 +511,10 @@ async function runWorkspaceMockStream(
       emit({
         type: 'usage',
         usage: {
-          promptTokens: 640,
-          completionTokens: 280,
-          reasoningTokens: 90,
-          totalTokens: 920
+          promptTokens: 740,
+          completionTokens: 320,
+          reasoningTokens: 110,
+          totalTokens: 1060
         }
       });
       emit({ type: 'done', finishReason: 'stop' });
@@ -483,18 +525,18 @@ async function runWorkspaceMockStream(
       [...req.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
     const planThinking = [
       `[Workspace Agent Planning]`,
-      `1. 사용자 지시 분석: "${userPrompt.slice(0, 70)}"`,
-      `2. 로컬 워크스페이스 구성: index.html · styles.css · app.js 모듈 분리 설계`,
-      `3. write_file 도구 호출을 통해 디스크 파일 순차 생성 실행`
+      `1. 사용자 지시 분석: "${userPrompt.slice(0, 72)}"`,
+      `2. 파일 설계: index.html · styles.css · app.js 모듈 분리 생성`,
+      `3. 후속 보완: write_file 실행 후 update_file로 실시간 상태 배지 미세 패치 수행`
     ].join('\n');
 
     for (const piece of splitIntoChunks(planThinking, 10, 22)) {
       if (signal.aborted) return;
       emit({ type: 'thinking', text: piece });
-      await sleepWithAbort(24, signal);
+      await sleepWithAbort(22, signal);
     }
 
-    const artifacts = buildWorkspaceMockArtifacts(userPrompt);
+    const artifacts = buildWorkspaceMockArtifacts(userPrompt, req.scenarioId);
     for (let i = 0; i < artifacts.length; i += 1) {
       if (signal.aborted) return;
       const item = artifacts[i];
@@ -506,16 +548,16 @@ async function runWorkspaceMockStream(
         emit,
         signal
       );
-      await sleepWithAbort(80, signal);
+      await sleepWithAbort(70, signal);
     }
 
     emit({
       type: 'usage',
       usage: {
-        promptTokens: 520,
-        completionTokens: 940,
-        reasoningTokens: 140,
-        totalTokens: 1460
+        promptTokens: 610,
+        completionTokens: 1180,
+        reasoningTokens: 160,
+        totalTokens: 1790
       }
     });
     emit({ type: 'done', finishReason: 'tool_calls' });
@@ -532,6 +574,161 @@ async function runWorkspaceMockStream(
           : 'Workspace Mock 스트림 중 오류가 발생했습니다.'
     });
   }
+}
+
+function buildScenarioResponse(req: ChatCompletionRequest): {
+  thinking: string;
+  content: string;
+  promptTokens: number;
+} | null {
+  if (req.scenarioId === 'scenario-512k-rca') {
+    return {
+      promptTokens: 248_400,
+      thinking: [
+        `[512K Context Scan — 248,400 Input Tokens Indexed]`,
+        `1. 분산 추적 ID(Trace-8912a) 기준 타임스탬프 역추적`,
+        `   - 02:11:04 KST: Redis Cluster 노드 #2 네트워크 지터(480ms) 관측`,
+        `   - 02:11:19 KST: payment-gateway -> redis-pool.acquire() 대기 스레드 512개 도달`,
+        `   - 02:11:42 KST: order-service 재시도 백오프 미적용으로 Retry Storm 발생 (요청량 6.4x 폭증)`,
+        ``,
+        `2. 설정 파일(payment-config.ts / redis.yaml) 교차 검증`,
+        `   - acquireTimeoutMs: 30000 설정 과다 -> 이벤트 루프 블로킹 연쇄 유발`,
+        `   - circuitBreaker.enabled: false 상태 확인`,
+        ``,
+        `3. 재발 방지 패치 설계`,
+        `   - Fail-Fast 타임아웃 단축(1,500ms) + Exponential Backoff with Jitter + Half-Open 서킷 브레이커 도입`
+      ].join('\n'),
+      content: `### 512K 컨텍스트 분산 장애 근본 원인 분석(RCA)
+
+총 **248,400 토큰**의 통합 로그 및 설정 파일을 교차 분석한 결과입니다. (우측 **512K Context Window** 바에서 실측 점유율 확인 가능)
+
+#### 1. 장애 타임라인 요약
+| 시각 (KST) | 서비스 | 관측 이벤트 | 근본 영향 |
+| :--- | :--- | :--- | :--- |
+| \`02:11:04\` | \`redis-cluster-02\` | 일시적 네트워크 패킷 지연(480ms) | 커넥션 반환 지연 시작 |
+| \`02:11:19\` | \`payment-gateway\` | 풀 대기 스레드 512개 포화 | \`acquireTimeoutMs(30s)\`로 요청 적체 |
+| \`02:11:42\` | \`order-service\` | 무제한 즉시 재시도(Retry Storm) | 전체 게이트웨이 \`HTTP 504\` 확산 |
+
+#### 2. 권장 패치: Fail-Fast 서킷 브레이커
+\`\`\`ts
+export class CircuitBreaker {
+  private failures = 0;
+  private openedUntil = 0;
+
+  constructor(
+    private readonly threshold = 5,
+    private readonly cooldownMs = 10_000
+  ) {}
+
+  async execute<T>(task: () => Promise<T>): Promise<T> {
+    if (Date.now() < this.openedUntil) {
+      throw new Error('CIRCUIT_OPEN: Fast-fail triggered');
+    }
+    try {
+      const result = await task();
+      this.failures = 0;
+      return result;
+    } catch (err) {
+      this.failures += 1;
+      if (this.failures >= this.threshold) {
+        this.openedUntil = Date.now() + this.cooldownMs;
+      }
+      throw err;
+    }
+  }
+}
+\`\`\`
+
+- **즉시 조치:** \`acquireTimeoutMs\`를 \`30,000ms → 1,500ms\`로 단축하고 지수 백오프 + Jitter를 적용하세요.`
+    };
+  }
+
+  if (req.scenarioId === 'scenario-effort-compare') {
+    const effort = req.reasoningEffort;
+    const thinkingByEffort: Record<ReasoningEffort, string> = {
+      low: [
+        `[Effort: LOW — 신속 추론]`,
+        `- 핵심 원인: 비원자적 읽기-수정-쓰기(Read-Modify-Write) 경합`,
+        `- 해법 선택: Redis Lua 스크립트 또는 단일 Mutex 직렬화 제안`
+      ].join('\n'),
+      high: [
+        `[Effort: HIGH — 구조적 추론]`,
+        `1. 다중 워커 Rate Limiter 경합 분석: GET 후 SET 사이 타임슬라이스 인터리빙 발생`,
+        `2. 메모리 누수 원인: 만료된 사용자 버킷 키를 정리하는 Eviction 루프 부재`,
+        `3. 해결 설계: Redis INCR+PEXPIRE Lua 원자 연산 + LRU 상한(maxEntries) 적용`
+      ].join('\n'),
+      max: [
+        `[Effort: MAX — 심층 반례 검증]`,
+        `1. 경합 시나리오 전수 검증`,
+        `   - 분산 워커 16개 동시 진입 시 GET/SET 비원자성으로 허용량 최대 140% 초과 허용 확인`,
+        `2. 반례 및 메모리 누수 점검`,
+        `   - 단발성 IP 100만 건 유입 시 Map 무한 팽창(OOM) -> Doubly-Linked LRU + TTL Lazy Eviction 필수`,
+        `   - 시계 역행(Clock Skew) 방어: Date.now() 대신 monotonic clock(performance.now) 또는 Redis TIME 사용`,
+        `3. 복잡도 확정: 시간 복잡도 O(1), 공간 복잡도 O(min(N, MAX_BUCKETS)) 보장`
+      ].join('\n')
+    };
+
+    return {
+      promptTokens: 1_840,
+      thinking: thinkingByEffort[effort],
+      content: `### \`reasoning_effort: ${effort}\` 동시성·최적화 분석 결과
+
+현재 선택된 추론 깊이 **\`${effort}\`** 기준으로 도출한 해법입니다. 우측 패널에서 \`low\` / \`high\` / \`max\`를 바꿔 재전송하면 추론 깊이와 사고 시간을 직접 비교할 수 있습니다.
+
+#### 1. 단계별 추론 깊이 대조표
+| 단계 | 추론 토큰 규모 | 검증 범위 | 권장 용도 |
+| :--- | :--- | :--- | :--- |
+| \`low\` | 경량 (신속 응답) | 핵심 원인 + 기본 코드 | 단순 요약·포맷 변환 |
+| \`high\` | 중간 (균형 응답) | 엣지 케이스 + 메모리 정리 | 일반 기능 개발·리뷰 |
+| \`max\` | 심층 (기본 최대) | 분산 반례 + Clock Skew + O(1) 증명 | 동시성·보안·장애 분석 |
+
+#### 2. 원자적 토큰 버킷 Rate Limiter (O(1) + 메모리 상한)
+\`\`\`ts
+interface Bucket {
+  tokens: number;
+  lastRefillMs: number;
+}
+
+export class BoundedTokenBucket {
+  private readonly buckets = new Map<string, Bucket>();
+
+  constructor(
+    private readonly capacity = 100,
+    private readonly refillPerSec = 20,
+    private readonly maxBuckets = 50_000
+  ) {}
+
+  allow(key: string, nowMs = performance.now()): boolean {
+    let bucket = this.buckets.get(key);
+    if (!bucket) {
+      if (this.buckets.size >= this.maxBuckets) {
+        const oldestKey = this.buckets.keys().next().value;
+        if (oldestKey !== undefined) this.buckets.delete(oldestKey);
+      }
+      bucket = { tokens: this.capacity, lastRefillMs: nowMs };
+    } else {
+      // LRU 순서 갱신
+      this.buckets.delete(key);
+    }
+
+    const elapsedSec = Math.max(0, (nowMs - bucket.lastRefillMs) / 1000);
+    bucket.tokens = Math.min(
+      this.capacity,
+      bucket.tokens + elapsedSec * this.refillPerSec
+    );
+    bucket.lastRefillMs = nowMs;
+    this.buckets.set(key, bucket);
+
+    if (bucket.tokens < 1) return false;
+    bucket.tokens -= 1;
+    return true;
+  }
+}
+\`\`\``
+    };
+  }
+
+  return null;
 }
 
 function buildThinkingByEffort(
@@ -732,35 +929,39 @@ export async function runMockChatStream(
     req.responseSchemaJson && req.responseSchemaJson.trim().length > 0
   );
 
-  const thinkingText = buildThinkingByEffort(
-    req.reasoningEffort,
-    lastUserMessage,
-    hasSchema
-  );
-  const contentText = buildContentResponse(req);
+  const scenario = buildScenarioResponse(req);
+  const thinkingText =
+    scenario?.thinking ??
+    buildThinkingByEffort(req.reasoningEffort, lastUserMessage, hasSchema);
+  const contentText = scenario?.content ?? buildContentResponse(req);
 
   const delayPerThinkingChunk =
-    req.reasoningEffort === 'max' ? 42 : req.reasoningEffort === 'high' ? 32 : 22;
+    req.reasoningEffort === 'max' ? 38 : req.reasoningEffort === 'high' ? 28 : 20;
 
   try {
-    for (const piece of splitIntoChunks(thinkingText, 8, 18)) {
+    for (const piece of splitIntoChunks(thinkingText, 8, 20)) {
       if (signal.aborted) return;
       emit({ type: 'thinking', text: piece });
       await sleepWithAbort(delayPerThinkingChunk, signal);
     }
 
-    await sleepWithAbort(120, signal);
+    await sleepWithAbort(100, signal);
 
-    for (const piece of splitIntoChunks(contentText, 10, 24)) {
+    for (const piece of splitIntoChunks(contentText, 12, 26)) {
       if (signal.aborted) return;
       emit({ type: 'content', text: piece });
-      await sleepWithAbort(22, signal);
+      await sleepWithAbort(20, signal);
     }
 
-    const promptTokens = Math.max(
-      120,
-      req.messages.reduce((acc, m) => acc + Math.ceil(m.content.length * 0.65), 0)
-    );
+    const promptTokens =
+      scenario?.promptTokens ??
+      Math.max(
+        120,
+        req.messages.reduce(
+          (acc, m) => acc + Math.ceil(m.content.length * 0.65),
+          0
+        )
+      );
     const reasoningTokens = Math.ceil(thinkingText.length * 0.7);
     const contentTokens = Math.ceil(contentText.length * 0.7);
     const completionTokens = reasoningTokens + contentTokens;
