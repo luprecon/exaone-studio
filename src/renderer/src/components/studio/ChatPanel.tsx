@@ -19,6 +19,7 @@ import type { ChatMessage } from '@shared/types';
 import { useStudioStore } from '@renderer/store/useStudioStore';
 import { useAppStore } from '@renderer/store/useAppStore';
 import { ThinkingAccordion } from '@renderer/components/studio/ThinkingAccordion';
+import { clampMaxTokens, estimateContextTokens } from '@renderer/lib/tokens';
 
 const QUICK_PROMPTS = [
   {
@@ -55,11 +56,13 @@ export function ChatPanel() {
     maxTokens,
     responseSchemaJson,
     activeScenarioId,
+    draftInput,
     isStreaming,
     activeRequestId,
     activeAssistantMessageId,
     errorMessage,
     updateSystemPrompt,
+    setDraftInput,
     addUserMessage,
     startAssistantStream,
     appendThinking,
@@ -73,7 +76,6 @@ export function ChatPanel() {
   const activeSession =
     sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
 
-  const [input, setInput] = useState('');
   const [isSystemOpen, setIsSystemOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -139,7 +141,7 @@ export function ChatPanel() {
   };
 
   const handleSubmit = async (overridePrompt?: string) => {
-    const text = (overridePrompt ?? input).trim();
+    const text = (overridePrompt ?? draftInput).trim();
     if (!text || isStreaming || !activeSession) return;
 
     if (runMode === 'live' && !hasApiKey) {
@@ -152,7 +154,7 @@ export function ChatPanel() {
 
     const userMessage = addUserMessage(text);
     if (!overridePrompt) {
-      setInput('');
+      setDraftInput('');
     }
 
     const requestId = createRequestId();
@@ -169,6 +171,12 @@ export function ChatPanel() {
     }
     requestMessages.push(...activeSession.messages, userMessage);
 
+    const estimatedInput = estimateContextTokens(
+      activeSession.systemPrompt,
+      [...activeSession.messages, userMessage]
+    );
+    const effectiveMaxTokens = clampMaxTokens(maxTokens, estimatedInput) || 256;
+
     try {
       await window.exaoneAPI.startChatStream({
         requestId,
@@ -177,7 +185,7 @@ export function ChatPanel() {
         messages: requestMessages,
         reasoningEffort,
         temperature,
-        maxTokens,
+        maxTokens: effectiveMaxTokens,
         responseSchemaJson: responseSchemaJson.trim() || undefined,
         scenarioId: activeScenarioId
       });
@@ -366,7 +374,7 @@ export function ChatPanel() {
                     )}
 
                     {msg.content ? (
-                      <div className="prose prose-invert prose-sm max-w-none leading-relaxed break-words [&>pre]:bg-zinc-950 [&>pre]:border [&>pre]:border-zinc-800 [&>pre]:rounded-lg [&>pre]:p-3 [&>pre]:overflow-x-auto [&>p]:my-1.5">
+                      <div className="markdown-content break-words">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
                           {msg.content}
                         </ReactMarkdown>
@@ -399,8 +407,8 @@ export function ChatPanel() {
         <div className="max-w-3xl mx-auto">
           <div className="flex items-end gap-2 rounded-xl border border-zinc-800 bg-zinc-900/70 p-2 focus-within:border-indigo-500/60 transition-colors">
             <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
+              value={draftInput}
+              onChange={(e) => setDraftInput(e.target.value)}
               onKeyDown={handleKeyDown}
               rows={2}
               placeholder="K-EXAONE 2.5에게 질문하거나 작업을 지시하세요... (Enter 전송 · Shift+Enter 줄바꿈)"
@@ -419,7 +427,7 @@ export function ChatPanel() {
               <button
                 type="button"
                 onClick={() => void handleSubmit()}
-                disabled={!input.trim()}
+                disabled={!draftInput.trim()}
                 className="h-9 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
               >
                 <Send className="w-3.5 h-3.5" />
