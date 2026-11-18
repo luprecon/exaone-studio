@@ -23,6 +23,7 @@ const exaoneAPI: ExaoneIPCBridge = {
   },
 
   openWorkspaceFolder: () => ipcRenderer.invoke('workspace:open-folder'),
+  openSampleWorkspace: () => ipcRenderer.invoke('workspace:open-sample'),
   listWorkspaceFiles: (rootPath) =>
     ipcRenderer.invoke('workspace:list-files', rootPath),
   readWorkspaceFile: (rootPath, relativePath) =>

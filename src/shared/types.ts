@@ -112,6 +112,7 @@ export interface ExaoneIPCBridge {
 
   // 로컬 워크스페이스 폴더 및 파일 제어
   openWorkspaceFolder: () => Promise<WorkspaceFolderResult | null>;
+  openSampleWorkspace: () => Promise<WorkspaceFolderResult>;
   listWorkspaceFiles: (rootPath: string) => Promise<WorkspaceFileNode[]>;
   readWorkspaceFile: (rootPath: string, relativePath: string) => Promise<string>;
   writeWorkspaceFile: (

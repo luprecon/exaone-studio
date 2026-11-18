@@ -3,6 +3,13 @@ import type { ChatCompletionRequest, StreamChunk } from '@shared/types';
 import { runMockChatStream } from './mockEngine';
 import { runLiveExaoneStream } from './exaoneClient';
 import { clearApiKey, hasStoredApiKey, saveApiKey } from './keyStore';
+import {
+  listWorkspaceFiles,
+  openSampleWorkspace,
+  openWorkspaceFolder,
+  readWorkspaceFile,
+  writeWorkspaceFile
+} from './workspaceFs';
 
 const activeControllers = new Map<string, AbortController>();
 
@@ -55,8 +62,21 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
     }
   });
 
-  ipcMain.handle('workspace:open-folder', async () => null);
-  ipcMain.handle('workspace:list-files', async () => []);
-  ipcMain.handle('workspace:read-file', async () => '');
-  ipcMain.handle('workspace:write-file', async () => undefined);
+  ipcMain.handle('workspace:open-folder', async () =>
+    openWorkspaceFolder(getMainWindow())
+  );
+  ipcMain.handle('workspace:open-sample', async () => openSampleWorkspace());
+  ipcMain.handle('workspace:list-files', async (_event, rootPath: string) =>
+    listWorkspaceFiles(rootPath)
+  );
+  ipcMain.handle(
+    'workspace:read-file',
+    async (_event, rootPath: string, relativePath: string) =>
+      readWorkspaceFile(rootPath, relativePath)
+  );
+  ipcMain.handle(
+    'workspace:write-file',
+    async (_event, rootPath: string, relativePath: string, content: string) =>
+      writeWorkspaceFile(rootPath, relativePath, content)
+  );
 }
