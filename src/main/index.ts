@@ -31,8 +31,23 @@ function createMainWindow(): BrowserWindow {
   return mainWindow;
 }
 
-app.whenReady().then(() => {
+function registerStubIpcHandlers(): void {
   ipcMain.handle('exaone:has-key', async () => false);
+  ipcMain.handle('exaone:save-key', async () => ({
+    ok: false,
+    error: '키 저장소 기능이 아직 연결되지 않았습니다.'
+  }));
+  ipcMain.handle('exaone:clear-key', async () => undefined);
+  ipcMain.handle('exaone:start-stream', async () => undefined);
+  ipcMain.handle('exaone:abort-stream', async () => undefined);
+  ipcMain.handle('workspace:open-folder', async () => null);
+  ipcMain.handle('workspace:list-files', async () => []);
+  ipcMain.handle('workspace:read-file', async () => '');
+  ipcMain.handle('workspace:write-file', async () => undefined);
+}
+
+app.whenReady().then(() => {
+  registerStubIpcHandlers();
   createMainWindow();
 
   app.on('activate', () => {
