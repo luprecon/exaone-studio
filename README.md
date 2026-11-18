@@ -41,7 +41,7 @@ LG AI연구원의 **K-EXAONE 2.5 API(`k-exaone_v2.5`)**를 기반으로 Google A
 - [x] **Step 0:** Electron 데스크톱 앱 마스터 구현 계획서 및 8단계 로드맵 확정
 - [x] **Step 1:** `electron-vite` 데스크톱 앱 초기 세팅 및 상단 헤더 구축
 - [x] **Step 2:** 채팅 메시지 타입 정의 및 기본 멀티턴 채팅창 구현
-- [ ] **Step 3:** 내장 Mock 스트리밍 엔진 및 `Thinking` 아코디언 UI 구현
+- [x] **Step 3:** 내장 Mock 스트리밍 엔진 및 `Thinking` 아코디언 UI 구현
 - [ ] **Step 4:** 로컬 API 키 안전 저장소(`safeStorage`) 및 K-EXAONE 2.5 직접 스트리밍 연동
 - [ ] **Step 5:** Studio 파라미터 제어 패널(512K·JSON Schema·코드 Export) 완성
 - [ ] **Step 6:** Workspace 실제 로컬 폴더 탐색기 및 Monaco 코드 에디터 연동

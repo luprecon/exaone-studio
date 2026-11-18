@@ -1,5 +1,8 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import { join } from 'node:path';
+import { registerIpcHandlers } from './ipcHandlers';
+
+let mainWindowRef: BrowserWindow | null = null;
 
 function createMainWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -22,32 +25,24 @@ function createMainWindow(): BrowserWindow {
     mainWindow.show();
   });
 
+  mainWindow.on('closed', () => {
+    if (mainWindowRef === mainWindow) {
+      mainWindowRef = null;
+    }
+  });
+
   if (process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
 
+  mainWindowRef = mainWindow;
   return mainWindow;
 }
 
-function registerStubIpcHandlers(): void {
-  ipcMain.handle('exaone:has-key', async () => false);
-  ipcMain.handle('exaone:save-key', async () => ({
-    ok: false,
-    error: '키 저장소 기능이 아직 연결되지 않았습니다.'
-  }));
-  ipcMain.handle('exaone:clear-key', async () => undefined);
-  ipcMain.handle('exaone:start-stream', async () => undefined);
-  ipcMain.handle('exaone:abort-stream', async () => undefined);
-  ipcMain.handle('workspace:open-folder', async () => null);
-  ipcMain.handle('workspace:list-files', async () => []);
-  ipcMain.handle('workspace:read-file', async () => '');
-  ipcMain.handle('workspace:write-file', async () => undefined);
-}
-
 app.whenReady().then(() => {
-  registerStubIpcHandlers();
+  registerIpcHandlers(() => mainWindowRef);
   createMainWindow();
 
   app.on('activate', () => {
