@@ -45,5 +45,5 @@ LG AI연구원의 **K-EXAONE 2.5 API(`k-exaone_v2.5`)**를 기반으로 Google A
 - [x] **Step 4:** 로컬 API 키 안전 저장소(`safeStorage`) 및 K-EXAONE 2.5 직접 스트리밍 연동
 - [x] **Step 5:** Studio 파라미터 제어 패널(512K·JSON Schema·코드 Export) 완성
 - [x] **Step 6:** Workspace 실제 로컬 폴더 탐색기 및 Monaco 코드 에디터 연동
-- [ ] **Step 7:** 로컬 파일 제어 에이전트 루프(`write_file`, `update_file`) 및 실시간 프리뷰 구현
+- [x] **Step 7:** 로컬 파일 제어 에이전트 루프(`write_file`, `update_file`) 및 실시간 프리뷰 구현
 - [ ] **Step 8:** 프리셋 데모 시나리오 3종 탑재 및 Windows 실행 파일(`.exe`) 패키징 구성
