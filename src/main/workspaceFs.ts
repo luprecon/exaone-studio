@@ -1,5 +1,6 @@
 import { app, dialog, type BrowserWindow } from 'electron';
 import {
+  access,
   mkdir,
   readdir,
   readFile,
@@ -18,8 +19,48 @@ const IGNORED_DIRS = new Set([
   '.next',
   '.turbo'
 ]);
+const BLOCKED_SEGMENTS = new Set(['.git', '.ssh', '.npmrc', 'id_rsa', 'id_ed25519']);
 const MAX_TREE_DEPTH = 5;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
+
+function assertNotSensitivePath(relativePath: string): void {
+  const segments = relativePath
+    .split(/[/\\]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  for (const segment of segments) {
+    const lower = segment.toLowerCase();
+    if (BLOCKED_SEGMENTS.has(lower)) {
+      throw new Error(`보안상 민감 경로(${segment}) 접근이 차단되었습니다.`);
+    }
+    if (
+      (lower === '.env' || lower.startsWith('.env.')) &&
+      lower !== '.env.example'
+    ) {
+      throw new Error(`환경 변수 파일(${segment}) 접근이 차단되었습니다.`);
+    }
+    if (lower.endsWith('.pem') || lower.endsWith('.key')) {
+      throw new Error(`개인 키 파일(${segment}) 접근이 차단되었습니다.`);
+    }
+  }
+}
+
+async function findNearestExistingPath(targetPath: string): Promise<string> {
+  let current = targetPath;
+  while (true) {
+    try {
+      await access(current);
+      return current;
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) {
+        return current;
+      }
+      current = parent;
+    }
+  }
+}
 
 const approvedRoots = new Set<string>();
 
@@ -125,6 +166,8 @@ async function resolveSafePath(
   }
 
   const normalizedRel = relativePath.replace(/^[/\\]+/, '');
+  assertNotSensitivePath(normalizedRel);
+
   const resolvedTarget = resolve(resolvedRoot, normalizedRel);
   const rel = relative(resolvedRoot, resolvedTarget);
 
@@ -134,20 +177,15 @@ async function resolveSafePath(
     }
   }
 
-  try {
-    const [realRoot, realTarget] = await Promise.all([
-      realpath(resolvedRoot),
-      realpath(resolvedTarget)
-    ]);
-    const realRel = relative(realRoot, realTarget);
-    if (realRel.startsWith('..') || isAbsolute(realRel)) {
-      throw new Error('심볼릭 링크를 통한 루트 외부 접근이 차단되었습니다.');
-    }
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('차단되었습니다')) {
-      throw err;
-    }
-    // 아직 생성되지 않은 신규 파일 경로는 위 resolve 경계 검증으로 통과
+  // 기존 파일 및 신규 파일의 가장 가까운 기존 상위 폴더까지 realpath 검증
+  const existingAncestor = await findNearestExistingPath(resolvedTarget);
+  const [realRoot, realAncestor] = await Promise.all([
+    realpath(resolvedRoot),
+    realpath(existingAncestor)
+  ]);
+  const realRel = relative(realRoot, realAncestor);
+  if (realRel.startsWith('..') || isAbsolute(realRel)) {
+    throw new Error('심볼릭 링크를 통한 루트 외부 접근이 차단되었습니다.');
   }
 
   return resolvedTarget;

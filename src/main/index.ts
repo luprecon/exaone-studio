@@ -1,8 +1,20 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 import { join } from 'node:path';
 import { registerIpcHandlers } from './ipcHandlers';
 
 let mainWindowRef: BrowserWindow | null = null;
+
+function isAllowedInAppUrl(targetUrl: string): boolean {
+  const devUrl = process.env['ELECTRON_RENDERER_URL'];
+  if (devUrl) {
+    try {
+      return new URL(targetUrl).origin === new URL(devUrl).origin;
+    } catch {
+      return false;
+    }
+  }
+  return targetUrl.startsWith('file://');
+}
 
 function createMainWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -17,8 +29,26 @@ function createMainWindow(): BrowserWindow {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isAllowedInAppUrl(url)) {
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        void shell.openExternal(url);
+      }
+    } catch {
+      // 비정상 URL 차단
+    }
+    return { action: 'deny' };
   });
 
   mainWindow.once('ready-to-show', () => {

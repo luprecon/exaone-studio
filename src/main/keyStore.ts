@@ -28,22 +28,29 @@ export async function saveApiKey(
     return { ok: false, error: '유효하지 않은 API 키 형식입니다.' };
   }
 
+  if (!safeStorage.isEncryptionAvailable()) {
+    return {
+      ok: false,
+      error:
+        '현재 OS 암호화 저장소(safeStorage)를 사용할 수 없어 API 키 평문 저장을 차단했습니다.'
+    };
+  }
+
   try {
     const filePath = getCredentialsPath();
     await mkdir(dirname(filePath), { recursive: true });
 
-    const canEncrypt = safeStorage.isEncryptionAvailable();
-    const payload = canEncrypt
-      ? safeStorage.encryptString(trimmed).toString('base64')
-      : Buffer.from(trimmed, 'utf-8').toString('base64');
-
+    const payload = safeStorage.encryptString(trimmed).toString('base64');
     const record: StoredCredentialsFile = {
-      encrypted: canEncrypt,
+      encrypted: true,
       payload,
       updatedAt: Date.now()
     };
 
-    await writeFile(filePath, JSON.stringify(record, null, 2), 'utf-8');
+    await writeFile(filePath, JSON.stringify(record, null, 2), {
+      encoding: 'utf-8',
+      mode: 0o600
+    });
     return { ok: true };
   } catch (err) {
     return {
@@ -60,16 +67,11 @@ export async function getStoredApiKey(): Promise<string | null> {
   try {
     const raw = await readFile(getCredentialsPath(), 'utf-8');
     const parsed = JSON.parse(raw) as StoredCredentialsFile;
-    if (!parsed.payload) return null;
+    if (!parsed.payload || !parsed.encrypted) return null;
+    if (!safeStorage.isEncryptionAvailable()) return null;
 
     const buffer = Buffer.from(parsed.payload, 'base64');
-    if (parsed.encrypted) {
-      if (!safeStorage.isEncryptionAvailable()) {
-        return null;
-      }
-      return safeStorage.decryptString(buffer);
-    }
-    return buffer.toString('utf-8');
+    return safeStorage.decryptString(buffer);
   } catch {
     return null;
   }
