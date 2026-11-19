@@ -18,6 +18,7 @@ import {
   MAX_AGENT_STEPS,
   runWorkspaceAgentLoop
 } from '@renderer/lib/agentLoop';
+import exaoneModelAvatar from '@renderer/assets/exaone-model-avatar.png';
 
 const WORKSPACE_QUICK_TASKS = [
   {
@@ -206,7 +207,11 @@ export function AgentChatPanel() {
                     </>
                   ) : (
                     <>
-                      <Bot className="w-3.5 h-3.5 text-emerald-400" />
+                      <img
+                        src={exaoneModelAvatar}
+                        alt="EXAONE Agent"
+                        className="w-4 h-4 rounded bg-white p-0.5 object-contain shrink-0"
+                      />
                       <span className="text-emerald-300">EXAONE Agent</span>
                     </>
                   )}

@@ -2,6 +2,8 @@
 
 LG AI연구원의 **K-EXAONE 2.5 API(`k-exaone_v2.5`)**를 기반으로 Google AI Studio 스타일 프롬프트 플레이그라운드(**Studio**)와 Antigravity 스타일 로컬 에이전트 코딩 환경(**Workspace**)을 통합한 **독립 실행형 데스크톱 AI 애플리케이션**.
 
+> **비공식 프로젝트 고지 (Unofficial Client):** 본 저장소는 개인 포트폴리오 및 학습 목적의 비공식 데스크톱 클라이언트이며 LG AI연구원과의 공식 제휴 관계 부재 · 앱 대표 아이콘은 자체 제작 심볼 사용 · 채팅 내 모델 아바타 출처: [LGAI-EXAONE GitHub](https://github.com/LGAI-EXAONE)
+
 ---
 
 ## 핵심 아키텍처 및 주요 기능

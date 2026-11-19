@@ -10,8 +10,6 @@ import {
   ChevronDown,
   ChevronRight,
   User,
-  Bot,
-  Sparkles,
   TerminalSquare,
   AlertCircle
 } from 'lucide-react';
@@ -20,6 +18,8 @@ import { useStudioStore } from '@renderer/store/useStudioStore';
 import { useAppStore } from '@renderer/store/useAppStore';
 import { ThinkingAccordion } from '@renderer/components/studio/ThinkingAccordion';
 import { clampMaxTokens, estimateContextTokens } from '@renderer/lib/tokens';
+import appIcon from '@renderer/assets/app-icon.png';
+import exaoneModelAvatar from '@renderer/assets/exaone-model-avatar.png';
 
 const QUICK_PROMPTS = [
   {
@@ -294,8 +294,12 @@ export function ChatPanel() {
         {!activeSession || activeSession.messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center max-w-2xl mx-auto text-center space-y-6">
             <div className="space-y-2">
-              <div className="mx-auto h-12 w-12 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-indigo-400" />
+              <div className="mx-auto h-14 w-14 rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-lg shadow-indigo-500/15">
+                <img
+                  src={appIcon}
+                  alt="EXAONE Studio App Icon"
+                  className="h-full w-full object-cover"
+                />
               </div>
               <h2 className="text-lg font-semibold text-zinc-100">
                 EXAONE Studio 멀티턴 채팅
@@ -343,8 +347,12 @@ export function ChatPanel() {
                   className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
                 >
                   {!isUser && (
-                    <div className="h-7 w-7 shrink-0 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center mt-0.5">
-                      <Bot className="w-4 h-4 text-indigo-400" />
+                    <div className="h-7 w-7 shrink-0 rounded-lg bg-white p-1 border border-zinc-700/70 flex items-center justify-center mt-0.5 shadow-xs">
+                      <img
+                        src={exaoneModelAvatar}
+                        alt="K-EXAONE 2.5"
+                        className="w-full h-full object-contain"
+                      />
                     </div>
                   )}
 

@@ -8,6 +8,8 @@ import {
   PlayCircle
 } from 'lucide-react';
 import { useAppStore } from '@renderer/store/useAppStore';
+import appIcon from '@renderer/assets/app-icon.png';
+import exaoneModelAvatar from '@renderer/assets/exaone-model-avatar.png';
 
 export function Header() {
   const {
@@ -32,15 +34,30 @@ export function Header() {
     <header className="h-14 shrink-0 border-b border-zinc-800/80 bg-zinc-950/95 px-4 flex items-center justify-between gap-4 select-none">
       {/* 좌측 브랜드 & 모델 배지 */}
       <div className="flex items-center gap-3 min-w-0">
-        <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm shadow-indigo-500/20">
-          <Sparkles className="w-4 h-4 text-white" />
+        <div className="h-8 w-8 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 shadow-sm shadow-indigo-500/20 shrink-0">
+          <img
+            src={appIcon}
+            alt="EXAONE Studio App Icon"
+            className="h-full w-full object-cover"
+          />
         </div>
         <div className="flex items-center gap-2 min-w-0">
-          <span className="font-semibold text-sm tracking-tight text-zinc-100 truncate">
+          <span
+            title="Unofficial Desktop Client for K-EXAONE 2.5"
+            className="font-semibold text-sm tracking-tight text-zinc-100 truncate"
+          >
             EXAONE Studio
           </span>
-          <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-mono bg-zinc-900 border border-zinc-800 text-indigo-300">
-            k-exaone_v2.5
+          <span
+            title="Powered by LG AI Research K-EXAONE 2.5 (Unofficial Client)"
+            className="hidden sm:inline-flex items-center gap-1.5 pl-1 pr-2 py-0.5 rounded-md text-[11px] font-mono bg-zinc-900 border border-zinc-800 text-indigo-300"
+          >
+            <img
+              src={exaoneModelAvatar}
+              alt="EXAONE Model"
+              className="h-4 w-4 rounded-sm bg-white p-0.5 object-contain shrink-0"
+            />
+            <span>k-exaone_v2.5</span>
           </span>
         </div>
       </div>

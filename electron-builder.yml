@@ -4,12 +4,14 @@ directories:
   output: dist
 files:
   - out/**/*
+  - build/icon.png
   - package.json
   - "!node_modules/**/*"
 asar: true
 npmRebuild: false
 win:
-  signAndEditExecutable: false
+  icon: build/icon.ico
+  signExecutable: false
   target:
     - target: portable
       arch:
@@ -17,6 +19,7 @@ win:
 portable:
   artifactName: "EXAONE-Studio-${version}-portable.${ext}"
 mac:
+  icon: build/icon.png
   category: public.app-category.developer-tools
   identity: null
   target:

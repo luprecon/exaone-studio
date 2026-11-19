@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, shell } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, shell } from 'electron';
 import { join } from 'node:path';
 import { registerIpcHandlers } from './ipcHandlers';
 
@@ -54,12 +54,16 @@ function isAllowedInAppUrl(targetUrl: string): boolean {
 }
 
 function createMainWindow(): BrowserWindow {
+  const iconPath = join(__dirname, '../../build/icon.png');
+  const appIcon = nativeImage.createFromPath(iconPath);
+
   const mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 680,
     backgroundColor: '#09090b',
+    icon: appIcon.isEmpty() ? undefined : appIcon,
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
@@ -110,6 +114,14 @@ function createMainWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   setupMacApplicationMenu();
+  if (process.platform === 'darwin' && app.dock) {
+    const dockIcon = nativeImage.createFromPath(
+      join(__dirname, '../../build/icon.png')
+    );
+    if (!dockIcon.isEmpty()) {
+      app.dock.setIcon(dockIcon);
+    }
+  }
   registerIpcHandlers(() => mainWindowRef);
   createMainWindow();
 

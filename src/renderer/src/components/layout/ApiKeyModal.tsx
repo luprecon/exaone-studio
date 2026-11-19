@@ -118,6 +118,9 @@ export function ApiKeyModal() {
             <p className="text-[11px] text-zinc-400">
               입력한 키는 외부 서버에 전송·저장되지 않으며 내 PC의 OS 암호화 저장소에만 보관됩니다. 키는 공식 포털(docs.exaone.ai)에서 발급받을 수 있습니다.
             </p>
+            <p className="text-[10px] text-zinc-500 pt-1 border-t border-zinc-800/80">
+              Unofficial Client: 본 앱은 개인 포트폴리오용 비공식 클라이언트이며 LG AI연구원과 공식 제휴 관계가 없습니다.
+            </p>
           </div>
 
           <div className="space-y-1.5">
