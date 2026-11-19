@@ -48,6 +48,10 @@ export function CodeEditorPane() {
     openSampleFolder
   } = useWorkspaceStore();
 
+  const isMac =
+    typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgent);
+  const saveShortcutLabel = isMac ? '⌘S' : 'Ctrl+S';
+
   const currentContent = selectedFilePath
     ? (fileContents[selectedFilePath] ?? '')
     : '';
@@ -119,7 +123,9 @@ export function CodeEditorPane() {
             className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-[11px] font-medium text-white transition-colors cursor-pointer"
           >
             <Save className="w-3 h-3" />
-            <span>{isSaving ? '저장 중...' : '저장 (Ctrl+S)'}</span>
+            <span>
+              {isSaving ? '저장 중...' : `저장 (${saveShortcutLabel})`}
+            </span>
           </button>
         </div>
       </div>

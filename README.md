@@ -53,9 +53,20 @@ LG AI연구원의 **K-EXAONE 2.5 API(`k-exaone_v2.5`)**를 기반으로 Google A
 ## 실행 및 패키징 방법
 
 - **의존성 설치:** `npm install`
-- **개발 모드 실행:** `npm run dev` (독립 Electron 데스크톱 창 기동 및 HMR 지원)
+- **개발 모드 실행:** `npm run dev` (Windows · macOS 독립 Electron 데스크톱 창 기동 및 HMR 지원)
 - **타입 검증 및 번들 빌드:** `npm run typecheck && npm run build`
 - **Windows 포터블 `.exe` 패키징:** `npm run dist:win` (`dist/EXAONE-Studio-0.1.0-portable.exe` 단독 실행 파일 생성)
+- **macOS `.dmg` / `.zip` 패키징 (macOS 환경):** `npm run dist:mac` (`dist/EXAONE-Studio-0.1.0-arm64.dmg` · `x64.dmg` 생성)
 - **즉시 체험 안내:**
   - 별도 API 키 미입력 상태에서 상단 `데모 시나리오` 버튼을 통한 3종 프리셋 즉시 시연 가능
   - 상단 `API Key` 메뉴에서 K-EXAONE 2.5 키 등록 후 `Live API` 모드 전환을 통한 실서버 연동 지원
+
+---
+
+## 보안 설계 요약
+
+- **프로세스 격리:** `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` 적용 및 `will-navigate` / `setWindowOpenHandler` 외부 창 이동 차단
+- **프로덕션 CSP:** `connect-src 'none'`, `object-src 'none'`, `default-src 'self'` 기반 프로덕션 콘텐츠 보안 정책 주입
+- **로컬 키 보호:** Electron `safeStorage`(Windows DPAPI / macOS Keychain) 암호화 필수 적용, 평문 폴백 제거 및 파일 권한 `0o600` 제한
+- **워크스페이스 샌드박스:** 사용자 선택 루트(`approvedRoots`) 외부 접근 차단, 기존 상위 폴더 기준 `realpath` 심볼릭 링크 우회 방어 및 `.env*`·`.git`·개인 키 파일 접근 차단
+- **프리뷰 격리:** `LivePreviewPane` 내 `<iframe sandbox="allow-scripts">` 적용을 통한 부모 앱 IPC 및 저장소 접근 차단
