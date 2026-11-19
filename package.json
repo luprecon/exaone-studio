@@ -12,7 +12,8 @@
     "build": "electron-vite build",
     "pack:dir": "electron-vite build && electron-builder --dir",
     "dist:win": "electron-vite build && electron-builder --win",
-    "dist:mac": "electron-vite build && electron-builder --mac"
+    "dist:mac": "electron-vite build && electron-builder --mac",
+    "postinstall": "install-electron"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
