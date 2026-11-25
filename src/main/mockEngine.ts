@@ -65,6 +65,18 @@ async function emitToolCallStream(
   }
 }
 
+function isTodoWorkspacePrompt(userPrompt: string, scenarioId?: string): boolean {
+  const lower = userPrompt.toLowerCase();
+  return (
+    scenarioId !== 'scenario-workspace-dashboard' &&
+    (lower.includes('할일') ||
+      lower.includes('todo') ||
+      lower.includes('to-do') ||
+      lower.includes('메모') ||
+      lower.includes('체크리스트'))
+  );
+}
+
 function buildWorkspaceMockArtifacts(
   userPrompt: string,
   scenarioId?: string
@@ -72,15 +84,7 @@ function buildWorkspaceMockArtifacts(
   tool: 'write_file' | 'update_file';
   args: Record<string, unknown>;
 }> {
-  const lower = userPrompt.toLowerCase();
-  const isTodoOrNote =
-    scenarioId !== 'scenario-workspace-dashboard' &&
-    (lower.includes('할일') ||
-      lower.includes('todo') ||
-      lower.includes('메모') ||
-      lower.includes('체크리스트'));
-
-  if (isTodoOrNote) {
+  if (isTodoWorkspacePrompt(userPrompt, scenarioId)) {
     return [
       {
         tool: 'write_file',
@@ -475,35 +479,55 @@ async function runWorkspaceMockStream(
   emit: (chunk: StreamChunk) => void,
   signal: AbortSignal
 ): Promise<void> {
-  const latestMessage = req.messages[req.messages.length - 1];
-
   try {
+    const latestMessage = req.messages[req.messages.length - 1];
+    const userPrompt =
+      [...req.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+    const isTodo = isTodoWorkspacePrompt(userPrompt, req.scenarioId);
+
     if (latestMessage?.role === 'tool') {
-      const thinking = [
-        `[도구 실행 결과 검증]`,
-        `- write_file 및 update_file 디스크 반영 결과 확인`,
-        `- index.html / styles.css / app.js 상호 참조 무결성 검증 완료`
-      ].join('\n');
+      const thinking = isTodo
+        ? [
+            `[도구 실행 결과 검증]`,
+            `- write_file 디스크 반영 결과 확인`,
+            `- index.html(#todo-form) / styles.css / app.js 상호 참조 무결성 검증 완료`
+          ].join('\n')
+        : [
+            `[도구 실행 결과 검증]`,
+            `- write_file 및 update_file 디스크 반영 결과 확인`,
+            `- index.html / styles.css / app.js 상호 참조 무결성 검증 완료`
+          ].join('\n');
 
       for (const piece of splitIntoChunks(thinking, 10, 22)) {
-        if (signal.aborted) return;
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
         emit({ type: 'thinking', text: piece });
         await sleepWithAbort(20, signal);
       }
 
-      const summary = [
-        `### 워크스페이스 파일 생성 및 패치 완료`,
-        ``,
-        `로컬 폴더에 다음 파일을 순차 생성·수정하고 우측 프리뷰에 즉시 반영했습니다.`,
-        `- \`index.html\`: 모니터링 대시보드 레이아웃 + Effort 필터 + \`update_file\` 상태 배지 패치`,
-        `- \`styles.css\`: 다크 그라디언트 대시보드 및 KPI 진행 바 스타일`,
-        `- \`app.js\`: Effort 필터링 및 실시간 시뮬레이션 로그 추가 로직`,
-        ``,
-        `우측 **실시간 프리뷰**에서 \`요청 시뮬레이션\` 버튼과 드롭다운 필터를 직접 조작해 보세요.`
-      ].join('\n');
+      const summary = isTodo
+        ? [
+            `### 할일(To-Do) 작업 플래너 앱 생성 완료`,
+            ``,
+            `로컬 폴더에 다음 파일을 생성하고 우측 프리뷰에 즉시 반영했습니다.`,
+            `- \`index.html\`: 다크 테마 스마트 작업 플래너 및 \`#todo-form\` 입력 폼 구성`,
+            `- \`styles.css\`: 카드 레이아웃·입력창·완료 항목 취소선 스타일`,
+            `- \`app.js\`: 할일 추가·완료 토글·삭제 및 남은 작업 카운트 실시간 갱신 로직`,
+            ``,
+            `우측 **실시간 프리뷰**에서 새 할일을 입력해 **추가** 버튼과 완료 토글을 테스트해 보세요.`
+          ].join('\n')
+        : [
+            `### 워크스페이스 파일 생성 및 패치 완료`,
+            ``,
+            `로컬 폴더에 다음 파일을 순차 생성·수정하고 우측 프리뷰에 즉시 반영했습니다.`,
+            `- \`index.html\`: 모니터링 대시보드 레이아웃 + Effort 필터 + \`update_file\` 상태 배지 패치`,
+            `- \`styles.css\`: 다크 그라디언트 대시보드 및 KPI 진행 바 스타일`,
+            `- \`app.js\`: Effort 필터링 및 실시간 시뮬레이션 로그 추가 로직`,
+            ``,
+            `우측 **실시간 프리뷰**에서 \`요청 시뮬레이션\` 버튼과 드롭다운 필터를 직접 조작해 보세요.`
+          ].join('\n');
 
       for (const piece of splitIntoChunks(summary, 10, 22)) {
-        if (signal.aborted) return;
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
         emit({ type: 'content', text: piece });
         await sleepWithAbort(18, signal);
       }
@@ -521,24 +545,24 @@ async function runWorkspaceMockStream(
       return;
     }
 
-    const userPrompt =
-      [...req.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
     const planThinking = [
       `[Workspace Agent Planning]`,
       `1. 사용자 지시 분석: "${userPrompt.slice(0, 72)}"`,
       `2. 파일 설계: index.html · styles.css · app.js 모듈 분리 생성`,
-      `3. 후속 보완: write_file 실행 후 update_file로 실시간 상태 배지 미세 패치 수행`
+      isTodo
+        ? `3. 폼 인터랙션: 제출 이벤트와 완료 토글·남은 작업 카운트 연동`
+        : `3. 후속 보완: write_file 실행 후 update_file로 실시간 상태 배지 미세 패치 수행`
     ].join('\n');
 
     for (const piece of splitIntoChunks(planThinking, 10, 22)) {
-      if (signal.aborted) return;
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       emit({ type: 'thinking', text: piece });
       await sleepWithAbort(22, signal);
     }
 
     const artifacts = buildWorkspaceMockArtifacts(userPrompt, req.scenarioId);
     for (let i = 0; i < artifacts.length; i += 1) {
-      if (signal.aborted) return;
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       const item = artifacts[i];
       await emitToolCallStream(
         i,
@@ -918,29 +942,29 @@ export async function runMockChatStream(
   emit: (chunk: StreamChunk) => void,
   signal: AbortSignal
 ): Promise<void> {
-  if (req.tools && req.tools.length > 0) {
-    await runWorkspaceMockStream(req, emit, signal);
-    return;
-  }
-
-  const lastUserMessage =
-    [...req.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
-  const hasSchema = Boolean(
-    req.responseSchemaJson && req.responseSchemaJson.trim().length > 0
-  );
-
-  const scenario = buildScenarioResponse(req);
-  const thinkingText =
-    scenario?.thinking ??
-    buildThinkingByEffort(req.reasoningEffort, lastUserMessage, hasSchema);
-  const contentText = scenario?.content ?? buildContentResponse(req);
-
-  const delayPerThinkingChunk =
-    req.reasoningEffort === 'max' ? 38 : req.reasoningEffort === 'high' ? 28 : 20;
-
   try {
+    if (req.tools && req.tools.length > 0) {
+      await runWorkspaceMockStream(req, emit, signal);
+      return;
+    }
+
+    const lastUserMessage =
+      [...req.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+    const hasSchema = Boolean(
+      req.responseSchemaJson && req.responseSchemaJson.trim().length > 0
+    );
+
+    const scenario = buildScenarioResponse(req);
+    const thinkingText =
+      scenario?.thinking ??
+      buildThinkingByEffort(req.reasoningEffort, lastUserMessage, hasSchema);
+    const contentText = scenario?.content ?? buildContentResponse(req);
+
+    const delayPerThinkingChunk =
+      req.reasoningEffort === 'max' ? 38 : req.reasoningEffort === 'high' ? 28 : 20;
+
     for (const piece of splitIntoChunks(thinkingText, 8, 20)) {
-      if (signal.aborted) return;
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       emit({ type: 'thinking', text: piece });
       await sleepWithAbort(delayPerThinkingChunk, signal);
     }
@@ -948,7 +972,7 @@ export async function runMockChatStream(
     await sleepWithAbort(100, signal);
 
     for (const piece of splitIntoChunks(contentText, 12, 26)) {
-      if (signal.aborted) return;
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       emit({ type: 'content', text: piece });
       await sleepWithAbort(20, signal);
     }

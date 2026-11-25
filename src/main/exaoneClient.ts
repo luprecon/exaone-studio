@@ -1,20 +1,21 @@
 import type {
   ChatCompletionRequest,
-  ChatMessage,
   RateLimitInfo,
   ReasoningEffort,
   StreamChunk
 } from '@shared/types';
+import {
+  ALLOWED_EFFORTS,
+  MAX_CONTEXT_TOKENS,
+  buildApiMessages,
+  buildResponseFormat,
+  estimateMessagesTokens,
+  sanitizeGenerationParams
+} from './exaonePayload';
 import { getStoredApiKey } from './keyStore';
 import { parseExaoneSseStream } from './sseParser';
 
 const EXAONE_API_ENDPOINT = 'https://api.exaone.ai/v1/chat/completions';
-const MAX_CONTEXT_TOKENS = 524_288;
-const ALLOWED_EFFORTS: ReadonlySet<ReasoningEffort> = new Set([
-  'low',
-  'high',
-  'max'
-]);
 
 function parseOptionalHeaderInt(
   headers: Headers,
@@ -40,102 +41,6 @@ function extractRateLimitInfo(headers: Headers): RateLimitInfo | null {
 
   const hasAnyValue = Object.values(info).some((v) => v !== undefined);
   return hasAnyValue ? info : null;
-}
-
-function estimateMessagesTokens(
-  messages: ChatMessage[],
-  tools?: Array<Record<string, unknown>>
-): number {
-  let chars = 0;
-  for (const msg of messages) {
-    chars += msg.content.length;
-    if (msg.toolCalls) {
-      chars += JSON.stringify(msg.toolCalls).length;
-    }
-  }
-  if (tools && tools.length > 0) {
-    chars += JSON.stringify(tools).length;
-  }
-  // 한국어·코드 혼합 입력 기준 보수적 토큰 추정
-  return Math.ceil(chars * 0.75) + messages.length * 16;
-}
-
-function buildApiMessages(messages: ChatMessage[]): Array<Record<string, unknown>> {
-  return messages.map((msg) => {
-    if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
-      return {
-        role: 'assistant',
-        content: msg.content || null,
-        tool_calls: msg.toolCalls.map((tc) => ({
-          id: tc.id,
-          type: 'function',
-          function: {
-            name: tc.name,
-            arguments: tc.argumentsJson
-          }
-        }))
-      };
-    }
-
-    if (msg.role === 'tool') {
-      return {
-        role: 'tool',
-        tool_call_id: msg.toolCallId,
-        name: msg.toolName,
-        content: msg.content
-      };
-    }
-
-    return {
-      role: msg.role,
-      content: msg.content
-    };
-  });
-}
-
-function buildResponseFormat(
-  schemaText?: string
-): { ok: true; value?: Record<string, unknown> } | { ok: false; error: string } {
-  if (!schemaText || !schemaText.trim()) {
-    return { ok: true, value: undefined };
-  }
-
-  try {
-    const parsed = JSON.parse(schemaText) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return {
-        ok: false,
-        error: 'JSON Schema는 올바른 JSON 객체 형식이어야 합니다.'
-      };
-    }
-
-    if ('schema' in parsed && 'name' in parsed) {
-      return {
-        ok: true,
-        value: {
-          type: 'json_schema',
-          json_schema: parsed
-        }
-      };
-    }
-
-    return {
-      ok: true,
-      value: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'exaone_structured_output',
-          strict: true,
-          schema: parsed
-        }
-      }
-    };
-  } catch {
-    return {
-      ok: false,
-      error: '우측 패널의 JSON Schema 구문이 유효한 JSON이 아닙니다.'
-    };
-  }
 }
 
 function formatHttpErrorMessage(status: number, bodyText: string): string {
@@ -168,62 +73,61 @@ export async function runLiveExaoneStream(
   emit: (chunk: StreamChunk) => void,
   signal: AbortSignal
 ): Promise<void> {
-  const apiKey = await getStoredApiKey();
-  if (!apiKey) {
-    emit({
-      type: 'error',
-      status: 401,
-      message:
-        '등록된 K-EXAONE API 키가 없습니다. 우측 상단 [API Key] 버튼에서 키를 먼저 저장해 주세요.'
-    });
-    return;
-  }
-
-  const schemaResult = buildResponseFormat(req.responseSchemaJson);
-  if (!schemaResult.ok) {
-    emit({ type: 'error', status: 400, message: schemaResult.error });
-    return;
-  }
-
-  const estimatedInputTokens = estimateMessagesTokens(req.messages, req.tools);
-  const availableForOutput = MAX_CONTEXT_TOKENS - estimatedInputTokens;
-  if (availableForOutput < 256) {
-    emit({
-      type: 'error',
-      status: 400,
-      message: `예상 입력 토큰(${estimatedInputTokens.toLocaleString()})이 최대 컨텍스트(524,288)에 도달했습니다. 대화를 초기화하거나 입력을 줄여 주세요.`
-    });
-    return;
-  }
-
-  const clampedMaxTokens = Math.max(
-    256,
-    Math.min(req.maxTokens, availableForOutput)
-  );
-  const effort: ReasoningEffort = ALLOWED_EFFORTS.has(req.reasoningEffort)
-    ? req.reasoningEffort
-    : 'max';
-
-  const body: Record<string, unknown> = {
-    model: 'k-exaone_v2.5',
-    messages: buildApiMessages(req.messages),
-    reasoning_effort: effort,
-    temperature: req.temperature,
-    max_tokens: clampedMaxTokens,
-    stream: true,
-    stream_options: { include_usage: true }
-  };
-
-  if (schemaResult.value) {
-    body.response_format = schemaResult.value;
-  }
-
-  if (req.tools && req.tools.length > 0) {
-    body.tools = req.tools;
-    body.tool_choice = 'auto';
-  }
-
   try {
+    const apiKey = await getStoredApiKey();
+    if (!apiKey) {
+      emit({
+        type: 'error',
+        status: 401,
+        message:
+          '등록된 K-EXAONE API 키가 없습니다. 우측 상단 [API Key] 버튼에서 키를 먼저 저장해 주세요.'
+      });
+      return;
+    }
+
+    const schemaResult = buildResponseFormat(req.responseSchemaJson);
+    if (!schemaResult.ok) {
+      emit({ type: 'error', status: 400, message: schemaResult.error });
+      return;
+    }
+
+    const estimatedInputTokens = estimateMessagesTokens(req.messages, req.tools);
+    const availableForOutput = MAX_CONTEXT_TOKENS - estimatedInputTokens;
+    if (availableForOutput < 256) {
+      emit({
+        type: 'error',
+        status: 400,
+        message: `예상 입력 토큰(${estimatedInputTokens.toLocaleString()})이 최대 컨텍스트(524,288)에 도달했습니다. 대화를 초기화하거나 입력을 줄여 주세요.`
+      });
+      return;
+    }
+
+    const { temperature: safeTemperature, maxTokens: clampedMaxTokens } =
+      sanitizeGenerationParams(req.temperature, req.maxTokens, availableForOutput);
+
+    const effort: ReasoningEffort = ALLOWED_EFFORTS.has(req.reasoningEffort)
+      ? req.reasoningEffort
+      : 'max';
+
+    const body: Record<string, unknown> = {
+      model: 'k-exaone_v2.5',
+      messages: buildApiMessages(req.messages),
+      reasoning_effort: effort,
+      temperature: safeTemperature,
+      max_tokens: clampedMaxTokens,
+      stream: true,
+      stream_options: { include_usage: true }
+    };
+
+    if (schemaResult.value) {
+      body.response_format = schemaResult.value;
+    }
+
+    if (req.tools && req.tools.length > 0) {
+      body.tools = req.tools;
+      body.tool_choice = 'auto';
+    }
+
     const response = await fetch(EXAONE_API_ENDPOINT, {
       method: 'POST',
       headers: {
