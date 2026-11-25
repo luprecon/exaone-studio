@@ -67,6 +67,37 @@ function buildPayload(input: CodegenInput): Record<string, unknown> {
   return payload;
 }
 
+function toPythonLiteral(value: unknown, indent = 0): string {
+  if (value === null || value === undefined) return 'None';
+  if (typeof value === 'boolean') return value ? 'True' : 'False';
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : 'None';
+  }
+  if (typeof value === 'string') return JSON.stringify(value);
+
+  const outerPad = ' '.repeat(indent);
+  const innerPad = ' '.repeat(indent + 4);
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]';
+    const items = value.map((item) => toPythonLiteral(item, indent + 4));
+    return `[\n${innerPad}${items.join(`,\n${innerPad}`)}\n${outerPad}]`;
+  }
+
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).filter(
+      ([, v]) => v !== undefined
+    );
+    if (entries.length === 0) return '{}';
+    const lines = entries.map(
+      ([k, v]) => `${JSON.stringify(k)}: ${toPythonLiteral(v, indent + 4)}`
+    );
+    return `{\n${innerPad}${lines.join(`,\n${innerPad}`)}\n${outerPad}}`;
+  }
+
+  return 'None';
+}
+
 export function generateCurlSnippet(input: CodegenInput): string {
   const payload = buildPayload(input);
   const json = JSON.stringify(payload, null, 2).replace(/'/g, "'\\''");
@@ -78,13 +109,14 @@ export function generateCurlSnippet(input: CodegenInput): string {
 
 export function generatePythonSnippet(input: CodegenInput): string {
   const payload = buildPayload(input);
-  const messagesJson = JSON.stringify(payload.messages, null, 2);
+  const messagesPy = toPythonLiteral(payload.messages, 4);
   const extraBody: Record<string, unknown> = {
     reasoning_effort: payload.reasoning_effort
   };
   if (payload.response_format) {
     extraBody.response_format = payload.response_format;
   }
+  const extraBodyPy = toPythonLiteral(extraBody, 4);
 
   return `import os
 from openai import OpenAI
@@ -96,11 +128,11 @@ client = OpenAI(
 
 stream = client.chat.completions.create(
     model="k-exaone_v2.5",
-    messages=${messagesJson},
+    messages=${messagesPy},
     temperature=${input.temperature},
     max_tokens=${payload.max_tokens},
     stream=True,
-    extra_body=${JSON.stringify(extraBody, null, 4)},
+    extra_body=${extraBodyPy},
 )
 
 for chunk in stream:
@@ -133,7 +165,7 @@ const reader = response.body.getReader();
 const decoder = new TextDecoder();
 let buffer = "";
 
-while (true) {
+streamLoop: while (true) {
   const { value, done } = await reader.read();
   if (done) break;
   buffer += decoder.decode(value, { stream: true });
@@ -143,7 +175,7 @@ while (true) {
   for (const line of lines) {
     if (!line.startsWith("data: ")) continue;
     const raw = line.slice(6).trim();
-    if (raw === "[DONE]") break;
+    if (raw === "[DONE]") break streamLoop;
     const json = JSON.parse(raw);
     const delta = json.choices?.[0]?.delta;
     if (delta?.reasoning_content) process.stdout.write(delta.reasoning_content);

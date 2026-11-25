@@ -27,7 +27,8 @@ export function estimateContextTokens(
 
 export function clampMaxTokens(requestedMax: number, inputTokens: number): number {
   const remaining = Math.max(0, MAX_CONTEXT_TOKENS - inputTokens);
-  if (remaining === 0) return 0;
+  if (remaining <= 0) return 0;
+  if (remaining < 256) return remaining;
   return Math.max(256, Math.min(requestedMax, remaining));
 }
 
