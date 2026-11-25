@@ -1,15 +1,20 @@
 import { app, dialog, type BrowserWindow } from 'electron';
 import {
-  access,
   mkdir,
   readdir,
   readFile,
-  realpath,
   stat,
   writeFile
 } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import type { WorkspaceFileNode, WorkspaceFolderResult } from '@shared/types';
+import {
+  MAX_FILE_BYTES,
+  MAX_TREE_DEPTH,
+  MAX_TREE_NODES,
+  isBinaryBuffer,
+  resolveSafeWorkspacePath
+} from './workspacePathGuard';
 
 const IGNORED_DIRS = new Set([
   'node_modules',
@@ -19,48 +24,6 @@ const IGNORED_DIRS = new Set([
   '.next',
   '.turbo'
 ]);
-const BLOCKED_SEGMENTS = new Set(['.git', '.ssh', '.npmrc', 'id_rsa', 'id_ed25519']);
-const MAX_TREE_DEPTH = 5;
-const MAX_FILE_BYTES = 2 * 1024 * 1024;
-
-function assertNotSensitivePath(relativePath: string): void {
-  const segments = relativePath
-    .split(/[/\\]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  for (const segment of segments) {
-    const lower = segment.toLowerCase();
-    if (BLOCKED_SEGMENTS.has(lower)) {
-      throw new Error(`보안상 민감 경로(${segment}) 접근이 차단되었습니다.`);
-    }
-    if (
-      (lower === '.env' || lower.startsWith('.env.')) &&
-      lower !== '.env.example'
-    ) {
-      throw new Error(`환경 변수 파일(${segment}) 접근이 차단되었습니다.`);
-    }
-    if (lower.endsWith('.pem') || lower.endsWith('.key')) {
-      throw new Error(`개인 키 파일(${segment}) 접근이 차단되었습니다.`);
-    }
-  }
-}
-
-async function findNearestExistingPath(targetPath: string): Promise<string> {
-  let current = targetPath;
-  while (true) {
-    try {
-      await access(current);
-      return current;
-    } catch {
-      const parent = dirname(current);
-      if (parent === current) {
-        return current;
-      }
-      current = parent;
-    }
-  }
-}
 
 const approvedRoots = new Set<string>();
 
@@ -156,49 +119,25 @@ if (button) {
 `
 };
 
-async function resolveSafePath(
-  rootPath: string,
-  relativePath: string
-): Promise<string> {
-  const resolvedRoot = resolve(rootPath);
-  if (!approvedRoots.has(resolvedRoot)) {
-    throw new Error('허용되지 않은 워크스페이스 루트 경로입니다.');
-  }
-
-  const normalizedRel = relativePath.replace(/^[/\\]+/, '');
-  assertNotSensitivePath(normalizedRel);
-
-  const resolvedTarget = resolve(resolvedRoot, normalizedRel);
-  const rel = relative(resolvedRoot, resolvedTarget);
-
-  if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
-    if (resolvedTarget !== resolvedRoot) {
-      throw new Error('워크스페이스 루트 외부 경로 접근이 차단되었습니다.');
-    }
-  }
-
-  // 기존 파일 및 신규 파일의 가장 가까운 기존 상위 폴더까지 realpath 검증
-  const existingAncestor = await findNearestExistingPath(resolvedTarget);
-  const [realRoot, realAncestor] = await Promise.all([
-    realpath(resolvedRoot),
-    realpath(existingAncestor)
-  ]);
-  const realRel = relative(realRoot, realAncestor);
-  if (realRel.startsWith('..') || isAbsolute(realRel)) {
-    throw new Error('심볼릭 링크를 통한 루트 외부 접근이 차단되었습니다.');
-  }
-
-  return resolvedTarget;
-}
-
 async function scanDirectory(
   rootPath: string,
   dirPath: string,
-  depth: number
+  depth: number,
+  counter: { count: number } = { count: 0 }
 ): Promise<WorkspaceFileNode[]> {
-  if (depth > MAX_TREE_DEPTH) return [];
+  if (depth > MAX_TREE_DEPTH || counter.count >= MAX_TREE_NODES) return [];
 
-  const entries = await readdir(dirPath, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(dirPath, { withFileTypes: true });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === 'EACCES' || code === 'EPERM' || code === 'ENOENT') {
+      return [];
+    }
+    throw err;
+  }
+
   const sorted = [...entries].sort((a, b) => {
     if (a.isDirectory() !== b.isDirectory()) {
       return a.isDirectory() ? -1 : 1;
@@ -208,6 +147,11 @@ async function scanDirectory(
 
   const nodes: WorkspaceFileNode[] = [];
   for (const entry of sorted) {
+    if (counter.count >= MAX_TREE_NODES) break;
+
+    if (entry.isSymbolicLink()) {
+      continue;
+    }
     if (entry.isDirectory() && IGNORED_DIRS.has(entry.name)) {
       continue;
     }
@@ -219,7 +163,8 @@ async function scanDirectory(
     const relPath = relative(rootPath, fullPath).replace(/\\/g, '/');
 
     if (entry.isDirectory()) {
-      const children = await scanDirectory(rootPath, fullPath, depth + 1);
+      counter.count += 1;
+      const children = await scanDirectory(rootPath, fullPath, depth + 1, counter);
       nodes.push({
         name: entry.name,
         relativePath: relPath,
@@ -227,6 +172,7 @@ async function scanDirectory(
         children
       });
     } else if (entry.isFile()) {
+      counter.count += 1;
       nodes.push({
         name: entry.name,
         relativePath: relPath,
@@ -278,6 +224,9 @@ export async function openSampleWorkspace(): Promise<WorkspaceFolderResult> {
 export async function listWorkspaceFiles(
   rootPath: string
 ): Promise<WorkspaceFileNode[]> {
+  if (typeof rootPath !== 'string' || !rootPath.trim()) {
+    throw new Error('유효하지 않은 워크스페이스 루트 경로입니다.');
+  }
   const resolvedRoot = resolve(rootPath);
   if (!approvedRoots.has(resolvedRoot)) {
     throw new Error('허용되지 않은 워크스페이스 루트 경로입니다.');
@@ -289,7 +238,11 @@ export async function readWorkspaceFile(
   rootPath: string,
   relativePath: string
 ): Promise<string> {
-  const safePath = await resolveSafePath(rootPath, relativePath);
+  const safePath = await resolveSafeWorkspacePath(
+    rootPath,
+    relativePath,
+    approvedRoots
+  );
   const info = await stat(safePath);
   if (!info.isFile()) {
     throw new Error('파일이 아닌 대상은 읽을 수 없습니다.');
@@ -297,7 +250,11 @@ export async function readWorkspaceFile(
   if (info.size > MAX_FILE_BYTES) {
     throw new Error('2MB를 초과하는 대용량 파일은 에디터에서 열 수 없습니다.');
   }
-  return readFile(safePath, 'utf-8');
+  const buf = await readFile(safePath);
+  if (isBinaryBuffer(buf)) {
+    throw new Error('바이너리 파일은 텍스트 에디터에서 열 수 없습니다.');
+  }
+  return buf.toString('utf-8');
 }
 
 export async function writeWorkspaceFile(
@@ -305,7 +262,17 @@ export async function writeWorkspaceFile(
   relativePath: string,
   content: string
 ): Promise<void> {
-  const safePath = await resolveSafePath(rootPath, relativePath);
+  if (typeof content !== 'string') {
+    throw new Error('유효하지 않은 파일 내용 형식입니다.');
+  }
+  if (Buffer.byteLength(content, 'utf-8') > MAX_FILE_BYTES) {
+    throw new Error('2MB를 초과하는 대용량 파일은 저장할 수 없습니다.');
+  }
+  const safePath = await resolveSafeWorkspacePath(
+    rootPath,
+    relativePath,
+    approvedRoots
+  );
   await mkdir(dirname(safePath), { recursive: true });
   await writeFile(safePath, content, 'utf-8');
 }

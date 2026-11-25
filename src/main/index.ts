@@ -1,8 +1,52 @@
-import { app, BrowserWindow, Menu, nativeImage, shell } from 'electron';
-import { join } from 'node:path';
-import { registerIpcHandlers } from './ipcHandlers';
+import { app, BrowserWindow, Menu, nativeImage, net, protocol, shell } from 'electron';
+import { join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import {
+  abortAllActiveStreams,
+  clearPreviewStore,
+  getPreviewHtml,
+  registerIpcHandlers
+} from './ipcHandlers';
+import {
+  APP_ORIGIN,
+  isAllowedInAppUrl as checkAllowedInAppUrl
+} from './urlGuard';
+import { isOutsideRoot } from './workspacePathGuard';
+
+export { APP_ORIGIN };
+const PREVIEW_URL_PREFIX = 'exaone-preview://sandbox/';
+
+const PREVIEW_CSP = [
+  "default-src 'none'",
+  "script-src 'unsafe-inline'",
+  "style-src 'unsafe-inline'",
+  'img-src data: blob:',
+  'font-src data:',
+  "connect-src 'none'",
+  "object-src 'none'",
+  "base-uri 'none'"
+].join('; ');
 
 let mainWindowRef: BrowserWindow | null = null;
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'app',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true
+    }
+  },
+  {
+    scheme: 'exaone-preview',
+    privileges: {
+      standard: true,
+      secure: true
+    }
+  }
+]);
 
 function setupMacApplicationMenu(): void {
   if (process.platform !== 'darwin') return;
@@ -41,16 +85,76 @@ function setupMacApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-function isAllowedInAppUrl(targetUrl: string): boolean {
-  const devUrl = process.env['ELECTRON_RENDERER_URL'];
-  if (devUrl) {
+export function isAllowedInAppUrl(targetUrl: string): boolean {
+  return checkAllowedInAppUrl(targetUrl, process.env['ELECTRON_RENDERER_URL']);
+}
+
+function registerAppProtocols(): void {
+  const rendererDir = resolve(__dirname, '../renderer');
+
+  protocol.handle('app', async (request) => {
     try {
-      return new URL(targetUrl).origin === new URL(devUrl).origin;
+      const url = new URL(request.url);
+      if (url.hostname !== 'exaone') {
+        return new Response('Forbidden', { status: 403 });
+      }
+
+      let decodedPath: string;
+      try {
+        decodedPath = decodeURIComponent(url.pathname);
+      } catch {
+        return new Response('Bad Request', { status: 400 });
+      }
+
+      const relPath =
+        !decodedPath || decodedPath === '/'
+          ? 'index.html'
+          : decodedPath.replace(/^\/+/, '');
+
+      const candidate = resolve(rendererDir, relPath);
+      const rel = relative(rendererDir, candidate);
+      if (!rel || isOutsideRoot(rel)) {
+        return new Response('Forbidden', { status: 403 });
+      }
+
+      return await net.fetch(pathToFileURL(candidate).toString());
     } catch {
-      return false;
+      return new Response('Not Found', { status: 404 });
     }
-  }
-  return targetUrl.startsWith('file://');
+  });
+
+  protocol.handle('exaone-preview', (request) => {
+    try {
+      const url = new URL(request.url);
+      if (url.hostname !== 'sandbox') {
+        return new Response('Forbidden', { status: 403 });
+      }
+
+      const id = url.pathname.replace(/^\/+/, '');
+      const html = getPreviewHtml(id);
+      if (html === undefined) {
+        return new Response('<!doctype html><html><body></body></html>', {
+          status: 404,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            'Content-Security-Policy': PREVIEW_CSP
+          }
+        });
+      }
+
+      return new Response(html, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'Content-Security-Policy': PREVIEW_CSP
+        }
+      });
+    } catch {
+      return new Response('Bad Request', { status: 400 });
+    }
+  });
 }
 
 function createMainWindow(): BrowserWindow {
@@ -80,6 +184,29 @@ function createMainWindow(): BrowserWindow {
     }
   });
 
+  mainWindow.webContents.on('will-frame-navigate', (details) => {
+    if (details.isMainFrame) {
+      if (!isAllowedInAppUrl(details.url)) {
+        details.preventDefault();
+      }
+      return;
+    }
+
+    if (!details.url.startsWith(PREVIEW_URL_PREFIX)) {
+      details.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) {
+      abortAllActiveStreams();
+    }
+  });
+
+  mainWindow.webContents.on('render-process-gone', () => {
+    abortAllActiveStreams();
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     try {
       const parsed = new URL(url);
@@ -97,15 +224,17 @@ function createMainWindow(): BrowserWindow {
   });
 
   mainWindow.on('closed', () => {
+    abortAllActiveStreams();
+    clearPreviewStore();
     if (mainWindowRef === mainWindow) {
       mainWindowRef = null;
     }
   });
 
   if (process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
+    void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
+    void mainWindow.loadURL(`${APP_ORIGIN}/index.html`);
   }
 
   mainWindowRef = mainWindow;
@@ -122,7 +251,8 @@ app.whenReady().then(() => {
       app.dock.setIcon(dockIcon);
     }
   }
-  registerIpcHandlers(() => mainWindowRef);
+  registerAppProtocols();
+  registerIpcHandlers(() => mainWindowRef, isAllowedInAppUrl);
   createMainWindow();
 
   app.on('activate', () => {

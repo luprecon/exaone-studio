@@ -20,12 +20,19 @@ export async function hasStoredApiKey(): Promise<boolean> {
 export async function saveApiKey(
   rawKey: string
 ): Promise<{ ok: boolean; error?: string }> {
+  if (typeof rawKey !== 'string') {
+    return { ok: false, error: '유효하지 않은 API 키 형식입니다.' };
+  }
   const trimmed = rawKey.trim();
   if (!trimmed) {
     return { ok: false, error: 'API 키를 입력해 주세요.' };
   }
-  if (trimmed.length < 8) {
-    return { ok: false, error: '유효하지 않은 API 키 형식입니다.' };
+  if (!/^[\x21-\x7e]{8,512}$/.test(trimmed)) {
+    return {
+      ok: false,
+      error:
+        '유효하지 않은 API 키 형식입니다. 공백·줄바꿈 없는 영문/숫자/특수문자 키(8~512자)를 입력해 주세요.'
+    };
   }
 
   if (!safeStorage.isEncryptionAvailable()) {

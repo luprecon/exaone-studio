@@ -120,4 +120,5 @@ export interface ExaoneIPCBridge {
     relativePath: string,
     content: string
   ) => Promise<void>;
+  setPreviewHtml: (html: string) => Promise<string>;
 }

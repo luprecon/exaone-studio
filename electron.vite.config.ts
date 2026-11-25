@@ -6,11 +6,12 @@ import type { Plugin } from 'vite';
 
 const PRODUCTION_CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
   "worker-src 'self' blob:",
+  "frame-src exaone-preview:",
   "connect-src 'none'",
   "object-src 'none'",
   "base-uri 'self'"

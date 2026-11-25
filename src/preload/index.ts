@@ -29,7 +29,9 @@ const exaoneAPI: ExaoneIPCBridge = {
   readWorkspaceFile: (rootPath, relativePath) =>
     ipcRenderer.invoke('workspace:read-file', rootPath, relativePath),
   writeWorkspaceFile: (rootPath, relativePath, content) =>
-    ipcRenderer.invoke('workspace:write-file', rootPath, relativePath, content)
+    ipcRenderer.invoke('workspace:write-file', rootPath, relativePath, content),
+  setPreviewHtml: (html) =>
+    ipcRenderer.invoke('workspace:set-preview-html', html)
 };
 
 contextBridge.exposeInMainWorld('exaoneAPI', exaoneAPI);
