@@ -11,6 +11,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import type { ToolCallRecord } from '@shared/types';
+import { normalizeWorkspaceRelPath } from '@renderer/lib/workspaceToolUtils';
 import { useWorkspaceStore } from '@renderer/store/useWorkspaceStore';
 
 interface ToolCallCardProps {
@@ -24,8 +25,9 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const parsedInfo = useMemo(() => {
     try {
       const obj = JSON.parse(toolCall.argumentsJson) as Record<string, unknown>;
+      const rawPath = typeof obj.path === 'string' ? obj.path : undefined;
       return {
-        path: typeof obj.path === 'string' ? obj.path : undefined,
+        path: rawPath ? normalizeWorkspaceRelPath(rawPath) || rawPath : undefined,
         preview: JSON.stringify(obj, null, 2)
       };
     } catch {

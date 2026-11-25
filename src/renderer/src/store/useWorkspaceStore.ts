@@ -1,5 +1,9 @@
 import { create } from 'zustand';
 import type { ChatMessage, WorkspaceFileNode } from '@shared/types';
+import { normalizeWorkspaceRelPath } from '@renderer/lib/workspaceToolUtils';
+
+const TEXT_CODE_EXT_RE =
+  /\.(html?|tsx?|jsx?|mjs|cjs|css|scss|json|md|txt|py|ya?ml|xml|svg|sh|bat)$/i;
 
 function findDefaultFilePath(nodes: WorkspaceFileNode[]): string | null {
   const flatFiles: string[] = [];
@@ -15,7 +19,8 @@ function findDefaultFilePath(nodes: WorkspaceFileNode[]): string | null {
   walk(nodes);
 
   if (flatFiles.includes('index.html')) return 'index.html';
-  return flatFiles[0] ?? null;
+  const textCandidate = flatFiles.find((file) => TEXT_CODE_EXT_RE.test(file));
+  return textCandidate ?? flatFiles[0] ?? null;
 }
 
 interface WorkspaceState {
@@ -28,13 +33,9 @@ interface WorkspaceState {
   previewRevision: number;
   errorMessage: string | null;
 
-  // 에이전트 상태 (Step 7에서 본격 연결)
   agentMessages: ChatMessage[];
   isAgentRunning: boolean;
   agentStep: number;
-  maxAgentSteps: number;
-  activeAgentRequestId: string | null;
-  pendingWorkspacePrompt: string;
   pendingAutoRun: { prompt: string; scenarioId?: string } | null;
 
   openFolder: () => Promise<boolean>;
@@ -47,7 +48,6 @@ interface WorkspaceState {
   bumpPreviewRevision: () => void;
   setErrorMessage: (message: string | null) => void;
 
-  setPendingWorkspacePrompt: (prompt: string) => void;
   setPendingAutoRun: (
     task: { prompt: string; scenarioId?: string } | null
   ) => void;
@@ -57,7 +57,6 @@ interface WorkspaceState {
   setAgentExecutionState: (patch: {
     isAgentRunning?: boolean;
     agentStep?: number;
-    activeAgentRequestId?: string | null;
   }) => void;
   resetAgentMessages: () => void;
 }
@@ -75,12 +74,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   agentMessages: [],
   isAgentRunning: false,
   agentStep: 0,
-  maxAgentSteps: 5,
-  activeAgentRequestId: null,
-  pendingWorkspacePrompt: '',
   pendingAutoRun: null,
 
   openFolder: async () => {
+    if (get().isAgentRunning) return false;
     try {
       const result = await window.exaoneAPI.openWorkspaceFolder();
       if (!result) return false;
@@ -110,6 +107,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   openSampleFolder: async () => {
+    if (get().isAgentRunning) return false;
     try {
       const result = await window.exaoneAPI.openSampleWorkspace();
       const defaultFile = findDefaultFilePath(result.tree);
@@ -139,11 +137,37 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   refreshTree: async () => {
-    const { rootPath } = get();
+    const { rootPath, dirtyFiles, fileContents, selectedFilePath } = get();
     if (!rootPath) return;
     try {
       const tree = await window.exaoneAPI.listWorkspaceFiles(rootPath);
-      set({ tree, errorMessage: null });
+      const nextContents: Record<string, string> = {};
+      for (const [path, content] of Object.entries(fileContents)) {
+        if (dirtyFiles[path]) {
+          nextContents[path] = content;
+        }
+      }
+
+      let nextSelected = selectedFilePath;
+      if (nextSelected && !dirtyFiles[nextSelected]) {
+        try {
+          const freshContent = await window.exaoneAPI.readWorkspaceFile(
+            rootPath,
+            nextSelected
+          );
+          nextContents[nextSelected] = freshContent;
+        } catch {
+          nextSelected = null;
+        }
+      }
+
+      set((state) => ({
+        tree,
+        selectedFilePath: nextSelected,
+        fileContents: nextContents,
+        errorMessage: null,
+        previewRevision: state.previewRevision + 1
+      }));
     } catch (err) {
       set({
         errorMessage:
@@ -158,19 +182,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const { rootPath, fileContents } = get();
     if (!rootPath) return;
 
-    if (relativePath in fileContents) {
-      set({ selectedFilePath: relativePath, errorMessage: null });
+    const normalizedPath = normalizeWorkspaceRelPath(relativePath);
+    if (!normalizedPath) return;
+
+    if (normalizedPath in fileContents) {
+      set({ selectedFilePath: normalizedPath, errorMessage: null });
       return;
     }
 
     try {
       const content = await window.exaoneAPI.readWorkspaceFile(
         rootPath,
-        relativePath
+        normalizedPath
       );
       set((state) => ({
-        selectedFilePath: relativePath,
-        fileContents: { ...state.fileContents, [relativePath]: content },
+        selectedFilePath: normalizedPath,
+        fileContents: { ...state.fileContents, [normalizedPath]: content },
         errorMessage: null
       }));
     } catch (err) {
@@ -181,11 +208,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  updateFileDraft: (relativePath, content) =>
+  updateFileDraft: (relativePath, content) => {
+    const normalizedPath = normalizeWorkspaceRelPath(relativePath);
+    if (!normalizedPath) return;
     set((state) => ({
-      fileContents: { ...state.fileContents, [relativePath]: content },
-      dirtyFiles: { ...state.dirtyFiles, [relativePath]: true }
-    })),
+      fileContents: { ...state.fileContents, [normalizedPath]: content },
+      dirtyFiles: { ...state.dirtyFiles, [normalizedPath]: true }
+    }));
+  },
 
   saveActiveFile: async () => {
     const { rootPath, selectedFilePath, fileContents } = get();
@@ -221,14 +251,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const { rootPath } = get();
     if (!rootPath) return;
 
+    const normalizedPath = normalizeWorkspaceRelPath(relativePath);
+    if (!normalizedPath) return;
+
     const tree = await window.exaoneAPI.listWorkspaceFiles(rootPath);
     set((state) => {
       const nextDirty = { ...state.dirtyFiles };
-      delete nextDirty[relativePath];
+      delete nextDirty[normalizedPath];
       return {
         tree,
-        selectedFilePath: relativePath,
-        fileContents: { ...state.fileContents, [relativePath]: content },
+        selectedFilePath: normalizedPath,
+        fileContents: { ...state.fileContents, [normalizedPath]: content },
         dirtyFiles: nextDirty,
         previewRevision: state.previewRevision + 1
       };
@@ -239,8 +272,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set((state) => ({ previewRevision: state.previewRevision + 1 })),
 
   setErrorMessage: (errorMessage) => set({ errorMessage }),
-  setPendingWorkspacePrompt: (pendingWorkspacePrompt) =>
-    set({ pendingWorkspacePrompt }),
   setPendingAutoRun: (pendingAutoRun) => set({ pendingAutoRun }),
 
   setAgentMessages: (updater) =>
@@ -255,7 +286,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({
       agentMessages: [],
       isAgentRunning: false,
-      agentStep: 0,
-      activeAgentRequestId: null
+      agentStep: 0
     })
 }));

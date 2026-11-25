@@ -16,6 +16,7 @@ import { ThinkingAccordion } from '@renderer/components/studio/ThinkingAccordion
 import { ToolCallCard } from '@renderer/components/workspace/ToolCallCard';
 import {
   MAX_AGENT_STEPS,
+  abortWorkspaceAgent,
   runWorkspaceAgentLoop
 } from '@renderer/lib/agentLoop';
 import exaoneModelAvatar from '@renderer/assets/exaone-model-avatar.png';
@@ -41,25 +42,15 @@ export function AgentChatPanel() {
     agentMessages,
     isAgentRunning,
     agentStep,
-    pendingWorkspacePrompt,
     pendingAutoRun,
     openSampleFolder,
-    setPendingWorkspacePrompt,
     setPendingAutoRun,
     setErrorMessage,
     resetAgentMessages
   } = useWorkspaceStore();
 
   const [input, setInput] = useState('');
-  const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (pendingWorkspacePrompt) {
-      setInput(pendingWorkspacePrompt);
-      setPendingWorkspacePrompt('');
-    }
-  }, [pendingWorkspacePrompt, setPendingWorkspacePrompt]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -94,28 +85,27 @@ export function AgentChatPanel() {
       setInput('');
     }
 
-    const controller = new AbortController();
-    abortRef.current = controller;
-
     await runWorkspaceAgentLoop({
       userPrompt: text,
       runMode,
       reasoningEffort,
-      scenarioId,
-      signal: controller.signal
+      scenarioId
     });
   };
+
+  const handleRunAgentRef = useRef(handleRunAgent);
+  handleRunAgentRef.current = handleRunAgent;
 
   useEffect(() => {
     if (pendingAutoRun && !isAgentRunning) {
       const task = pendingAutoRun;
       setPendingAutoRun(null);
-      void handleRunAgent(task.prompt, task.scenarioId);
+      void handleRunAgentRef.current(task.prompt, task.scenarioId);
     }
-  }, [pendingAutoRun, isAgentRunning]);
+  }, [pendingAutoRun, isAgentRunning, setPendingAutoRun]);
 
   const handleStop = () => {
-    abortRef.current?.abort();
+    abortWorkspaceAgent();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -240,7 +230,21 @@ export function AgentChatPanel() {
                     {msg.content && (
                       <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2.5">
                         <div className="markdown-content text-xs break-words">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              a: ({ href, children, ...props }) => (
+                                <a
+                                  {...props}
+                                  href={href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  {children}
+                                </a>
+                              )
+                            }}
+                          >
                             {msg.content}
                           </ReactMarkdown>
                         </div>

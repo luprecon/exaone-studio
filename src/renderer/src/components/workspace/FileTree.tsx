@@ -92,8 +92,14 @@ function TreeItem({ node, depth }: TreeItemProps) {
 }
 
 export function FileTree() {
-  const { rootPath, tree, openFolder, openSampleFolder, refreshTree } =
-    useWorkspaceStore();
+  const {
+    rootPath,
+    tree,
+    isAgentRunning,
+    openFolder,
+    openSampleFolder,
+    refreshTree
+  } = useWorkspaceStore();
 
   const folderName = rootPath
     ? rootPath.split(/[/\\]/).filter(Boolean).pop() ?? rootPath
@@ -109,9 +115,10 @@ export function FileTree() {
           {rootPath && (
             <button
               type="button"
+              disabled={isAgentRunning}
               onClick={() => void refreshTree()}
               title="파일 트리 새로고침"
-              className="p-1 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 cursor-pointer"
+              className="p-1 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
@@ -121,16 +128,18 @@ export function FileTree() {
         <div className="grid grid-cols-2 gap-1.5">
           <button
             type="button"
+            disabled={isAgentRunning}
             onClick={() => void openFolder()}
-            className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-[11px] font-medium text-zinc-200 cursor-pointer"
+            className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-[11px] font-medium text-zinc-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <FolderOpen className="w-3 h-3 text-emerald-400" />
             <span>폴더 열기</span>
           </button>
           <button
             type="button"
+            disabled={isAgentRunning}
             onClick={() => void openSampleFolder()}
-            className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-[11px] font-medium text-zinc-200 cursor-pointer"
+            className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-[11px] font-medium text-zinc-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <FolderPlus className="w-3 h-3 text-indigo-400" />
             <span>샘플 폴더</span>

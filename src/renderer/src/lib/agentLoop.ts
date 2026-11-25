@@ -5,10 +5,20 @@ import type {
   ToolCallRecord,
   WorkspaceFileNode
 } from '@shared/types';
+import {
+  applyUpdateFileReplacement,
+  validateToolArgs
+} from '@renderer/lib/workspaceToolUtils';
 import { useAppStore } from '@renderer/store/useAppStore';
 import { useWorkspaceStore } from '@renderer/store/useWorkspaceStore';
 
 export const MAX_AGENT_STEPS = 5;
+
+let activeAgentAbortController: AbortController | null = null;
+
+export function abortWorkspaceAgent(): void {
+  activeAgentAbortController?.abort();
+}
 
 export const WORKSPACE_TOOLS: Array<Record<string, unknown>> = [
   {
@@ -116,64 +126,81 @@ async function executeWorkspaceTool(
 ): Promise<{ ok: boolean; output: string }> {
   let args: Record<string, unknown> = {};
   try {
-    args = record.argumentsJson.trim()
-      ? (JSON.parse(record.argumentsJson) as Record<string, unknown>)
+    const parsed = record.argumentsJson.trim()
+      ? (JSON.parse(record.argumentsJson) as unknown)
       : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: false, output: '도구 인자는 JSON 객체여야 합니다.' };
+    }
+    args = parsed as Record<string, unknown>;
   } catch {
     return { ok: false, output: '도구 인자 JSON 파싱에 실패했습니다.' };
   }
 
+  const validated = validateToolArgs(record.name, args);
+  if (!validated.ok) {
+    return { ok: false, output: validated.error };
+  }
+
   try {
-    if (record.name === 'list_files') {
+    if (validated.toolName === 'list_files') {
       const tree = await window.exaoneAPI.listWorkspaceFiles(rootPath);
       const files = flattenTree(tree);
       return { ok: true, output: JSON.stringify({ files }) };
     }
 
-    if (record.name === 'read_file') {
-      const path = String(args.path ?? '');
-      if (!path) return { ok: false, output: 'path 인자가 비어 있습니다.' };
-      const content = await window.exaoneAPI.readWorkspaceFile(rootPath, path);
+    if (validated.toolName === 'read_file') {
+      const content = await window.exaoneAPI.readWorkspaceFile(
+        rootPath,
+        validated.path
+      );
       return { ok: true, output: content };
     }
 
-    if (record.name === 'write_file') {
-      const path = String(args.path ?? '');
-      const content = String(args.content ?? '');
-      if (!path) return { ok: false, output: 'path 인자가 비어 있습니다.' };
-      await window.exaoneAPI.writeWorkspaceFile(rootPath, path, content);
-      await useWorkspaceStore.getState().applyExternalWrite(path, content);
+    if (validated.toolName === 'write_file') {
+      await window.exaoneAPI.writeWorkspaceFile(
+        rootPath,
+        validated.path,
+        validated.content
+      );
+      await useWorkspaceStore
+        .getState()
+        .applyExternalWrite(validated.path, validated.content);
       return {
         ok: true,
-        output: JSON.stringify({ status: 'written', path, bytes: content.length })
+        output: JSON.stringify({
+          status: 'written',
+          path: validated.path,
+          bytes: validated.content.length
+        })
       };
     }
 
-    if (record.name === 'update_file') {
-      const path = String(args.path ?? '');
-      const target = String(args.target ?? '');
-      const replacement = String(args.replacement ?? '');
-      if (!path || !target) {
-        return { ok: false, output: 'path 또는 target 인자가 비어 있습니다.' };
-      }
-
-      const current = await window.exaoneAPI.readWorkspaceFile(rootPath, path);
-      if (!current.includes(target)) {
-        return {
-          ok: false,
-          output: `파일(${path})에서 대상 문자열을 찾을 수 없습니다.`
-        };
-      }
-      const nextContent = current.split(target).join(replacement);
-      await window.exaoneAPI.writeWorkspaceFile(rootPath, path, nextContent);
-      await useWorkspaceStore.getState().applyExternalWrite(path, nextContent);
-      return {
-        ok: true,
-        output: JSON.stringify({ status: 'updated', path })
-      };
+    const current = await window.exaoneAPI.readWorkspaceFile(
+      rootPath,
+      validated.path
+    );
+    const updated = applyUpdateFileReplacement(
+      current,
+      validated.target,
+      validated.replacement
+    );
+    if (!updated.ok) {
+      return { ok: false, output: `${updated.error} (${validated.path})` };
     }
 
-    return { ok: false, output: `알 수 없는 도구입니다: ${record.name}` };
+    await window.exaoneAPI.writeWorkspaceFile(
+      rootPath,
+      validated.path,
+      updated.nextContent
+    );
+    await useWorkspaceStore
+      .getState()
+      .applyExternalWrite(validated.path, updated.nextContent);
+    return {
+      ok: true,
+      output: JSON.stringify({ status: 'updated', path: validated.path })
+    };
   } catch (err) {
     return {
       ok: false,
@@ -186,6 +213,17 @@ async function executeWorkspaceTool(
 interface SingleStepOutcome {
   toolCalls: ToolCallRecord[];
   aborted: boolean;
+}
+
+function stripIncompleteAssistantTurn(assistantMsgId: string): void {
+  useWorkspaceStore.getState().setAgentMessages((prev) =>
+    prev.flatMap((m) => {
+      if (m.id !== assistantMsgId) return [m];
+      if (!m.content && !(m.thinking ?? '')) return [];
+      const { toolCalls: _dropped, ...rest } = m;
+      return [rest];
+    })
+  );
 }
 
 async function runSingleAgentStep(options: {
@@ -207,7 +245,6 @@ async function runSingleAgentStep(options: {
     signal
   } = options;
 
-  const store = useWorkspaceStore.getState();
   const deltaMap = new Map<
     number,
     { id: string; name: string; argumentsJson: string }
@@ -239,6 +276,7 @@ async function runSingleAgentStep(options: {
 
     const onAbort = () => {
       void window.exaoneAPI.abortChatStream(requestId);
+      stripIncompleteAssistantTurn(assistantMsgId);
       finish({ toolCalls: [], aborted: true });
     };
 
@@ -263,13 +301,13 @@ async function runSingleAgentStep(options: {
     };
 
     unsubscribe = window.exaoneAPI.onStreamChunk((chunkReqId, chunk) => {
-      if (chunkReqId !== requestId) return;
+      if (chunkReqId !== requestId || settled) return;
 
       switch (chunk.type) {
         case 'thinking': {
           thinkingStart = thinkingStart ?? Date.now();
           const elapsed = Date.now() - thinkingStart;
-          store.setAgentMessages((prev) =>
+          useWorkspaceStore.getState().setAgentMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
                 ? {
@@ -283,7 +321,7 @@ async function runSingleAgentStep(options: {
           break;
         }
         case 'content': {
-          store.setAgentMessages((prev) =>
+          useWorkspaceStore.getState().setAgentMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
                 ? { ...m, content: m.content + chunk.text }
@@ -296,7 +334,7 @@ async function runSingleAgentStep(options: {
           const { index, id, name, argumentsChunk } = chunk.delta;
           const current = deltaMap.get(index) ?? {
             id: id ?? createId('call'),
-            name: name ?? 'write_file',
+            name: name ?? '',
             argumentsJson: ''
           };
           if (id) current.id = id;
@@ -311,14 +349,20 @@ async function runSingleAgentStep(options: {
           break;
         }
         case 'error': {
+          stripIncompleteAssistantTurn(assistantMsgId);
           fail(new Error(chunk.message));
           break;
         }
         case 'done': {
+          if (chunk.finishReason === 'aborted' || signal.aborted) {
+            stripIncompleteAssistantTurn(assistantMsgId);
+            finish({ toolCalls: [], aborted: true });
+            break;
+          }
           const records = syncToolCallsToMessage();
           finish({
             toolCalls: records,
-            aborted: chunk.finishReason === 'aborted' || signal.aborted
+            aborted: false
           });
           break;
         }
@@ -340,6 +384,7 @@ async function runSingleAgentStep(options: {
         scenarioId
       })
       .catch((err) => {
+        stripIncompleteAssistantTurn(assistantMsgId);
         fail(
           err instanceof Error ? err : new Error('에이전트 스트림 시작 실패')
         );
@@ -352,13 +397,26 @@ export async function runWorkspaceAgentLoop(params: {
   runMode: RunMode;
   reasoningEffort: ReasoningEffort;
   scenarioId?: string;
-  signal: AbortSignal;
+  signal?: AbortSignal;
 }): Promise<void> {
   const wsStore = useWorkspaceStore.getState();
   const rootPath = wsStore.rootPath;
   if (!rootPath) {
     wsStore.setErrorMessage('먼저 로컬 워크스페이스 폴더를 열어 주세요.');
     return;
+  }
+
+  const controller = new AbortController();
+  activeAgentAbortController = controller;
+  const forwardExternalAbort = () => controller.abort();
+  if (params.signal) {
+    if (params.signal.aborted) {
+      controller.abort();
+    } else {
+      params.signal.addEventListener('abort', forwardExternalAbort, {
+        once: true
+      });
+    }
   }
 
   const userMsg: ChatMessage = {
@@ -386,7 +444,7 @@ export async function runWorkspaceAgentLoop(params: {
 
   try {
     for (let step = 1; step <= MAX_AGENT_STEPS; step += 1) {
-      if (params.signal.aborted) break;
+      if (controller.signal.aborted) break;
 
       const requestId = createId('ws_req');
       const assistantMsgId = createId('ws_assistant');
@@ -402,8 +460,7 @@ export async function runWorkspaceAgentLoop(params: {
       const historyBeforeStep = useWorkspaceStore.getState().agentMessages;
       useWorkspaceStore.getState().setAgentExecutionState({
         isAgentRunning: true,
-        agentStep: step,
-        activeAgentRequestId: requestId
+        agentStep: step
       });
       useWorkspaceStore
         .getState()
@@ -416,16 +473,51 @@ export async function runWorkspaceAgentLoop(params: {
         runMode: params.runMode,
         reasoningEffort: params.reasoningEffort,
         scenarioId: params.scenarioId,
-        signal: params.signal
+        signal: controller.signal
       });
 
       if (outcome.aborted || outcome.toolCalls.length === 0) {
         break;
       }
 
-      // 도구 실행 및 결과 메시지 첨부
-      for (const toolCall of outcome.toolCalls) {
-        if (params.signal.aborted) break;
+      // 도구 실행 및 결과 메시지 첨부 (중단 시 미실행 도구에 대한 취소 응답 보완)
+      for (let idx = 0; idx < outcome.toolCalls.length; idx += 1) {
+        const toolCall = outcome.toolCalls[idx];
+        if (controller.signal.aborted) {
+          const remainingCalls = outcome.toolCalls.slice(idx);
+          const remainingIds = new Set(remainingCalls.map((tc) => tc.id));
+
+          useWorkspaceStore.getState().setAgentMessages((prev) => {
+            const updated = prev.map((msg) => {
+              if (msg.id !== assistantMsgId || !msg.toolCalls) return msg;
+              return {
+                ...msg,
+                toolCalls: msg.toolCalls.map((tc) =>
+                  remainingIds.has(tc.id)
+                    ? {
+                        ...tc,
+                        status: 'error' as const,
+                        resultSummary: '사용자에 의해 중지됨'
+                      }
+                    : tc
+                )
+              };
+            });
+
+            const cancelMessages: ChatMessage[] = remainingCalls.map((tc) => ({
+              id: createId('ws_tool'),
+              role: 'tool',
+              toolCallId: tc.id,
+              toolName: tc.name,
+              content: JSON.stringify({ error: 'aborted_by_user' }),
+              createdAt: Date.now()
+            }));
+
+            return [...updated, ...cancelMessages];
+          });
+          break;
+        }
+
         const result = await executeWorkspaceTool(rootPath, toolCall);
 
         useWorkspaceStore.getState().setAgentMessages((prev) => {
@@ -458,7 +550,7 @@ export async function runWorkspaceAgentLoop(params: {
         });
       }
 
-      if (step === MAX_AGENT_STEPS) {
+      if (step === MAX_AGENT_STEPS && !controller.signal.aborted) {
         useWorkspaceStore.getState().setAgentMessages((prev) => [
           ...prev,
           {
@@ -477,10 +569,13 @@ export async function runWorkspaceAgentLoop(params: {
         err instanceof Error ? err.message : '에이전트 실행 중 오류가 발생했습니다.'
       );
   } finally {
+    params.signal?.removeEventListener('abort', forwardExternalAbort);
+    if (activeAgentAbortController === controller) {
+      activeAgentAbortController = null;
+    }
     useWorkspaceStore.getState().setAgentExecutionState({
       isAgentRunning: false,
-      agentStep: 0,
-      activeAgentRequestId: null
+      agentStep: 0
     });
   }
 }
