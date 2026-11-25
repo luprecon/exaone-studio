@@ -26,6 +26,7 @@ export function Header() {
   const handleToggleRunMode = (nextMode: 'demo' | 'live') => {
     if (nextMode === 'live' && !hasApiKey) {
       setApiKeyModalOpen(true);
+      return;
     }
     setRunMode(nextMode);
   };

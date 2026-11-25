@@ -35,6 +35,7 @@ export function DemoScenariosModal() {
         autoRunPrompt: scenario.userPrompt
       });
     } else {
+      useStudioStore.getState().setReasoningEffort(scenario.recommendedEffort);
       setAppMode('workspace');
       resetAgentMessages();
       setPendingAutoRun({

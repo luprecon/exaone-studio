@@ -17,6 +17,7 @@ import type { ChatMessage } from '@shared/types';
 import { useStudioStore } from '@renderer/store/useStudioStore';
 import { useAppStore } from '@renderer/store/useAppStore';
 import { ThinkingAccordion } from '@renderer/components/studio/ThinkingAccordion';
+import { abortStudioStream } from '@renderer/lib/studioStream';
 import { clampMaxTokens, estimateContextTokens } from '@renderer/lib/tokens';
 import appIcon from '@renderer/assets/app-icon.png';
 import exaoneModelAvatar from '@renderer/assets/exaone-model-avatar.png';
@@ -47,7 +48,7 @@ function createRequestId(): string {
 }
 
 export function ChatPanel() {
-  const { runMode, hasApiKey, setApiKeyModalOpen, setRateLimit } = useAppStore();
+  const { runMode, hasApiKey, setApiKeyModalOpen } = useAppStore();
   const {
     sessions,
     activeSessionId,
@@ -59,7 +60,6 @@ export function ChatPanel() {
     draftInput,
     pendingAutoPrompt,
     isStreaming,
-    activeRequestId,
     activeAssistantMessageId,
     errorMessage,
     updateSystemPrompt,
@@ -67,10 +67,7 @@ export function ChatPanel() {
     clearPendingAutoPrompt,
     addUserMessage,
     startAssistantStream,
-    appendThinking,
-    appendContent,
     finalizeStream,
-    setLastUsage,
     setErrorMessage,
     resetActiveSession
   } = useStudioStore();
@@ -81,48 +78,6 @@ export function ChatPanel() {
   const [isSystemOpen, setIsSystemOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const unsubscribe = window.exaoneAPI.onStreamChunk((requestId, chunk) => {
-      const state = useStudioStore.getState();
-      if (state.activeRequestId !== requestId) return;
-
-      switch (chunk.type) {
-        case 'thinking':
-          appendThinking(chunk.text);
-          break;
-        case 'content':
-          appendContent(chunk.text);
-          break;
-        case 'usage':
-          setLastUsage(chunk.usage);
-          break;
-        case 'rate_limit':
-          setRateLimit(chunk.info);
-          break;
-        case 'error':
-          setErrorMessage(chunk.message);
-          finalizeStream();
-          break;
-        case 'done':
-          finalizeStream();
-          break;
-        default:
-          break;
-      }
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, [
-    appendThinking,
-    appendContent,
-    finalizeStream,
-    setLastUsage,
-    setRateLimit,
-    setErrorMessage
-  ]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -154,6 +109,19 @@ export function ChatPanel() {
       return;
     }
 
+    const priorMessages = activeSession.messages.filter(
+      (msg) => !(msg.role === 'assistant' && !msg.content && !(msg.toolCalls?.length))
+    );
+    const estimatedInput =
+      estimateContextTokens(activeSession.systemPrompt, priorMessages, text) + 12;
+    const effectiveMaxTokens = clampMaxTokens(maxTokens, estimatedInput);
+    if (effectiveMaxTokens < 256) {
+      setErrorMessage(
+        '입력 토큰이 최대 컨텍스트(524,288)에 도달해 응답을 생성할 수 없습니다. 대화를 초기화하거나 입력을 줄여 주세요.'
+      );
+      return;
+    }
+
     const userMessage = addUserMessage(text);
     if (!overridePrompt) {
       setDraftInput('');
@@ -171,13 +139,7 @@ export function ChatPanel() {
         createdAt: activeSession.createdAt
       });
     }
-    requestMessages.push(...activeSession.messages, userMessage);
-
-    const estimatedInput = estimateContextTokens(
-      activeSession.systemPrompt,
-      [...activeSession.messages, userMessage]
-    );
-    const effectiveMaxTokens = clampMaxTokens(maxTokens, estimatedInput) || 256;
+    requestMessages.push(...priorMessages, userMessage);
 
     try {
       await window.exaoneAPI.startChatStream({
@@ -199,13 +161,11 @@ export function ChatPanel() {
     }
   };
 
+  const handleSubmitRef = useRef(handleSubmit);
+  handleSubmitRef.current = handleSubmit;
+
   const handleStop = async () => {
-    if (!activeRequestId) return;
-    try {
-      await window.exaoneAPI.abortChatStream(activeRequestId);
-    } finally {
-      finalizeStream();
-    }
+    await abortStudioStream();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -219,9 +179,9 @@ export function ChatPanel() {
     if (pendingAutoPrompt && !isStreaming) {
       const promptToRun = pendingAutoPrompt;
       clearPendingAutoPrompt();
-      void handleSubmit(promptToRun);
+      void handleSubmitRef.current(promptToRun);
     }
-  }, [pendingAutoPrompt, isStreaming]);
+  }, [pendingAutoPrompt, isStreaming, clearPendingAutoPrompt]);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-zinc-950">
@@ -393,7 +353,21 @@ export function ChatPanel() {
 
                     {msg.content ? (
                       <div className="markdown-content break-words">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            a: ({ href, children, ...props }) => (
+                              <a
+                                {...props}
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {children}
+                              </a>
+                            )
+                          }}
+                        >
                           {msg.content}
                         </ReactMarkdown>
                       </div>

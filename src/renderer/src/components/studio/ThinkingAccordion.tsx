@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BrainCircuit, ChevronDown, ChevronRight, Clock } from 'lucide-react';
 
 interface ThinkingAccordionProps {
@@ -14,6 +14,9 @@ export function ThinkingAccordion({
 }: ThinkingAccordionProps) {
   const [isOpen, setIsOpen] = useState(isThinkingActive);
   const [liveMs, setLiveMs] = useState(durationMs);
+  const startRef = useRef<number | null>(null);
+  const durationMsRef = useRef(durationMs);
+  durationMsRef.current = durationMs;
 
   useEffect(() => {
     if (isThinkingActive) {
@@ -23,16 +26,26 @@ export function ThinkingAccordion({
 
   useEffect(() => {
     if (!isThinkingActive) {
-      setLiveMs(durationMs);
+      startRef.current = null;
       return;
     }
 
-    const start = Date.now() - durationMs;
+    startRef.current = Date.now() - durationMsRef.current;
+    setLiveMs(Date.now() - startRef.current);
+
     const timer = setInterval(() => {
-      setLiveMs(Date.now() - start);
+      if (startRef.current !== null) {
+        setLiveMs(Date.now() - startRef.current);
+      }
     }, 100);
 
     return () => clearInterval(timer);
+  }, [isThinkingActive]);
+
+  useEffect(() => {
+    if (!isThinkingActive) {
+      setLiveMs(durationMs);
+    }
   }, [isThinkingActive, durationMs]);
 
   if (!thinking && !isThinkingActive) {

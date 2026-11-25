@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import type {
   ChatMessage,
   ChatSession,
@@ -9,6 +9,63 @@ import type {
 
 const DEFAULT_SYSTEM_PROMPT =
   '당신은 LG AI연구원의 K-EXAONE 2.5 AI 어시스턴트입니다. 논리적이고 정확한 한국어로 답변하고, 코드 예시는 실무 표준에 맞춰 작성하세요.';
+
+const STORAGE_DEBOUNCE_MS = 500;
+const pendingStorageWrites = new Map<string, string>();
+let storageFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function flushStudioStorage(): void {
+  if (storageFlushTimer !== null) {
+    clearTimeout(storageFlushTimer);
+    storageFlushTimer = null;
+  }
+  if (typeof window === 'undefined' || !window.localStorage) {
+    pendingStorageWrites.clear();
+    return;
+  }
+  for (const [key, value] of pendingStorageWrites.entries()) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (err) {
+      console.warn('[useStudioStore] localStorage 저장 실패(용량 초과 등):', err);
+    }
+  }
+  pendingStorageWrites.clear();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', flushStudioStorage);
+}
+
+const debouncedLocalStorage: StateStorage = {
+  getItem: (name) => {
+    if (pendingStorageWrites.has(name)) {
+      return pendingStorageWrites.get(name) ?? null;
+    }
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    try {
+      return window.localStorage.getItem(name);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (name, value) => {
+    pendingStorageWrites.set(name, value);
+    if (storageFlushTimer !== null) {
+      clearTimeout(storageFlushTimer);
+    }
+    storageFlushTimer = setTimeout(flushStudioStorage, STORAGE_DEBOUNCE_MS);
+  },
+  removeItem: (name) => {
+    pendingStorageWrites.delete(name);
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      window.localStorage.removeItem(name);
+    } catch {
+      // 무시
+    }
+  }
+};
 
 function createId(prefix: string): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -62,7 +119,6 @@ interface StudioState {
   setTemperature: (temperature: number) => void;
   setMaxTokens: (maxTokens: number) => void;
   setResponseSchemaJson: (schemaJson: string) => void;
-  setActiveScenarioId: (scenarioId: string | undefined) => void;
   setDraftInput: (text: string) => void;
   clearPendingAutoPrompt: () => void;
   setErrorMessage: (message: string | null) => void;
@@ -127,7 +183,7 @@ export const useStudioStore = create<StudioState>()(
           errorMessage: null
         }),
 
-      deleteSession: (sessionId) =>
+      deleteSession: (sessionId) => {
         set((state) => {
           const remaining = state.sessions.filter((s) => s.id !== sessionId);
           if (remaining.length === 0) {
@@ -136,21 +192,28 @@ export const useStudioStore = create<StudioState>()(
               sessions: [replacement],
               activeSessionId: replacement.id,
               activeScenarioId: undefined,
+              lastUsage: null,
               errorMessage: null
             };
           }
-          const nextActive =
-            state.activeSessionId === sessionId
-              ? remaining[0].id
-              : state.activeSessionId;
+          const isDeletingActive = state.activeSessionId === sessionId;
+          const nextActive = isDeletingActive
+            ? remaining[0].id
+            : state.activeSessionId;
           return {
             sessions: remaining,
             activeSessionId: nextActive,
+            activeScenarioId: isDeletingActive
+              ? undefined
+              : state.activeScenarioId,
+            lastUsage: isDeletingActive ? null : state.lastUsage,
             errorMessage: null
           };
-        }),
+        });
+        flushStudioStorage();
+      },
 
-      resetActiveSession: () =>
+      resetActiveSession: () => {
         set((state) => ({
           sessions: state.sessions.map((session) =>
             session.id === state.activeSessionId
@@ -165,7 +228,9 @@ export const useStudioStore = create<StudioState>()(
           activeScenarioId: undefined,
           lastUsage: null,
           errorMessage: null
-        })),
+        }));
+        flushStudioStorage();
+      },
 
       updateSystemPrompt: (systemPrompt) =>
         set((state) => ({
@@ -181,7 +246,6 @@ export const useStudioStore = create<StudioState>()(
       setMaxTokens: (maxTokens) => set({ maxTokens }),
       setResponseSchemaJson: (responseSchemaJson) =>
         set({ responseSchemaJson }),
-      setActiveScenarioId: (activeScenarioId) => set({ activeScenarioId }),
       setDraftInput: (draftInput) => set({ draftInput }),
       clearPendingAutoPrompt: () => set({ pendingAutoPrompt: null }),
       setErrorMessage: (errorMessage) => set({ errorMessage }),
@@ -201,7 +265,9 @@ export const useStudioStore = create<StudioState>()(
           sessions: state.sessions.map((session) => {
             if (session.id !== activeSessionId) return session;
             const isFirstMessage = session.messages.length === 0;
-            const nextTitle = isFirstMessage
+            const shouldAutoTitle =
+              isFirstMessage && session.title === '새 프롬프트 세션';
+            const nextTitle = shouldAutoTitle
               ? trimmed.slice(0, 28) + (trimmed.length > 28 ? '...' : '')
               : session.title;
             return {
@@ -294,16 +360,41 @@ export const useStudioStore = create<StudioState>()(
           };
         }),
 
-      finalizeStream: () =>
-        set({
-          isStreaming: false,
-          activeRequestId: null,
-          activeAssistantMessageId: null,
-          thinkingStartedAt: null
-        })
+      finalizeStream: () => {
+        set((state) => {
+          const targetId = state.activeAssistantMessageId;
+          const cleanedSessions = targetId
+            ? state.sessions.map((session) => {
+                if (session.id !== state.activeSessionId) return session;
+                const filtered = session.messages.filter(
+                  (msg) =>
+                    !(
+                      msg.id === targetId &&
+                      msg.role === 'assistant' &&
+                      !msg.content &&
+                      !(msg.thinking ?? '')
+                    )
+                );
+                return filtered.length === session.messages.length
+                  ? session
+                  : { ...session, messages: filtered };
+              })
+            : state.sessions;
+
+          return {
+            sessions: cleanedSessions,
+            isStreaming: false,
+            activeRequestId: null,
+            activeAssistantMessageId: null,
+            thinkingStartedAt: null
+          };
+        });
+        flushStudioStorage();
+      }
     }),
     {
       name: 'exaone-studio-sessions-v1',
+      storage: createJSONStorage(() => debouncedLocalStorage),
       partialize: (state) => ({
         sessions: state.sessions,
         activeSessionId: state.activeSessionId,
