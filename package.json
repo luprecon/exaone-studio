@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
+    "test": "node --import ./tests/register-ts.mjs --test tests/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "build": "electron-vite build",
     "pack:dir": "electron-vite build && electron-builder --dir",
