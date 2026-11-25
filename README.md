@@ -25,9 +25,9 @@ LG AI연구원의 **K-EXAONE 2.5 API(`k-exaone_v2.5`)**를 기반으로 Google A
 
 - **Desktop Runtime & Build:** Electron, `electron-vite`, `electron-builder`
 - **Frontend & Language:** React, TypeScript, Vite
-- **Styling & UI:** Tailwind CSS, shadcn/ui, Lucide Icons, Framer Motion
+- **Styling & UI:** Tailwind CSS, Lucide Icons
 - **State Management:** Zustand
-- **Code Editor & Markdown:** `@monaco-editor/react`, `react-markdown`, `rehype-highlight`
+- **Code Editor & Markdown:** `@monaco-editor/react`, `react-markdown`, `remark-gfm`
 
 ---
 
@@ -56,6 +56,7 @@ LG AI연구원의 **K-EXAONE 2.5 API(`k-exaone_v2.5`)**를 기반으로 Google A
 
 - **의존성 설치:** `npm install`
 - **개발 모드 실행:** `npm run dev` (Windows · macOS 독립 Electron 데스크톱 창 기동 및 HMR 지원)
+- **단위 테스트 실행:** `npm test` (Node 내장 테스트 러너 기반 핵심 보안·파서·유틸 검증)
 - **타입 검증 및 번들 빌드:** `npm run typecheck && npm run build`
 - **Windows 포터블 `.exe` 패키징:** `npm run dist:win` (`dist/EXAONE-Studio-0.1.0-portable.exe` 단독 실행 파일 생성)
 - **macOS `.dmg` / `.zip` 패키징 (macOS 환경):** `npm run dist:mac` (`dist/EXAONE-Studio-0.1.0-arm64.dmg` · `x64.dmg` 생성)
@@ -67,8 +68,8 @@ LG AI연구원의 **K-EXAONE 2.5 API(`k-exaone_v2.5`)**를 기반으로 Google A
 
 ## 보안 설계 요약
 
-- **프로세스 격리:** `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` 적용 및 `will-navigate` / `setWindowOpenHandler` 외부 창 이동 차단
-- **프로덕션 CSP:** `connect-src 'none'`, `object-src 'none'`, `default-src 'self'` 기반 프로덕션 콘텐츠 보안 정책 주입
-- **로컬 키 보호:** Electron `safeStorage`(Windows DPAPI / macOS Keychain) 암호화 필수 적용, 평문 폴백 제거 및 파일 권한 `0o600` 제한
-- **워크스페이스 샌드박스:** 사용자 선택 루트(`approvedRoots`) 외부 접근 차단, 기존 상위 폴더 기준 `realpath` 심볼릭 링크 우회 방어 및 `.env*`·`.git`·개인 키 파일 접근 차단
-- **프리뷰 격리:** `LivePreviewPane` 내 `<iframe sandbox="allow-scripts">` 적용을 통한 부모 앱 IPC 및 저장소 접근 차단
+- **프로세스·프로토콜 격리:** `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` 적용 및 커스텀 스킴(`app://exaone`, `exaone-preview://sandbox`) 기반 내비게이션·`will-frame-navigate` 제어
+- **프로덕션 CSP:** `script-src 'self'`, `frame-src exaone-preview:`, `connect-src 'none'`, `object-src 'none'`, `default-src 'self'` 기반 프로덕션 콘텐츠 보안 정책 주입
+- **로컬 키 보호:** Electron `safeStorage`(Windows DPAPI / macOS Keychain) 암호화 필수 적용, ASCII 키 형식 검증, 평문 폴백 제거 및 파일 권한 `0o600` 제한
+- **워크스페이스 샌드박스:** 사용자 선택 루트(`approvedRoots`) 외부 접근 차단, 세그먼트별 `lstat`·`realpath` 심볼릭 링크(Dangling/내부 링크 포함) 차단, Windows NTFS ADS(`::$DATA`)·예약 장치명 차단 및 `.env*`·`.git`·개인 키 파일·바이너리 접근 차단
+- **프리뷰 격리:** `LivePreviewPane` 내 `<iframe sandbox="allow-scripts allow-forms">`와 전용 `exaone-preview://` 응답 CSP 적용을 통한 부모 앱 IPC 및 저장소 접근 차단
