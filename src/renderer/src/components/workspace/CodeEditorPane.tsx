@@ -1,9 +1,16 @@
+import { useEffect, useRef } from 'react';
+import type * as monacoType from 'monaco-editor';
 import Editor, { type OnMount } from '@monaco-editor/react';
-import { Save, FileCode2, FolderOpen } from 'lucide-react';
+import { Save, FileCode2, FolderOpen, Eye } from 'lucide-react';
 import { ensureMonacoSetup } from '@renderer/lib/monacoSetup';
 import { useWorkspaceStore } from '@renderer/store/useWorkspaceStore';
 
 ensureMonacoSetup();
+
+interface CodeEditorPaneProps {
+  isPreviewVisible?: boolean;
+  onTogglePreview?: () => void;
+}
 
 function inferLanguage(filePath: string | null): string {
   if (!filePath) return 'plaintext';
@@ -36,7 +43,10 @@ function inferLanguage(filePath: string | null): string {
   }
 }
 
-export function CodeEditorPane() {
+export function CodeEditorPane({
+  isPreviewVisible = false,
+  onTogglePreview
+}: CodeEditorPaneProps) {
   const {
     rootPath,
     selectedFilePath,
@@ -47,6 +57,22 @@ export function CodeEditorPane() {
     saveActiveFile,
     openSampleFolder
   } = useWorkspaceStore();
+
+  const editorRef = useRef<monacoType.editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof monacoType | null>(null);
+  const prevRootRef = useRef<string | null>(rootPath);
+
+  useEffect(() => {
+    if (prevRootRef.current && prevRootRef.current !== rootPath) {
+      const activeModel = editorRef.current?.getModel();
+      monacoRef.current?.editor.getModels().forEach((model) => {
+        if (model !== activeModel) {
+          model.dispose();
+        }
+      });
+    }
+    prevRootRef.current = rootPath;
+  }, [rootPath]);
 
   const isMac =
     typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgent);
@@ -59,8 +85,14 @@ export function CodeEditorPane() {
     ? Boolean(dirtyFiles[selectedFilePath])
     : false;
   const language = inferLanguage(selectedFilePath);
+  const scopedModelPath =
+    rootPath && selectedFilePath
+      ? `workspace_${encodeURIComponent(rootPath)}/${selectedFilePath}`
+      : undefined;
 
   const handleMount: OnMount = (editor, monacoInstance) => {
+    editorRef.current = editor;
+    monacoRef.current = monacoInstance;
     editor.addCommand(
       monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS,
       () => {
@@ -83,16 +115,28 @@ export function CodeEditorPane() {
             좌측 Explorer에서 로컬 폴더를 열거나 샘플 폴더를 실행해 Monaco 코드 에디터로 편집·저장할 수 있습니다.
           </p>
         </div>
-        {!rootPath && (
-          <button
-            type="button"
-            onClick={() => void openSampleFolder()}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white cursor-pointer"
-          >
-            <FolderOpen className="w-3.5 h-3.5" />
-            <span>샘플 프로젝트 열기</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {!rootPath && (
+            <button
+              type="button"
+              onClick={() => void openSampleFolder()}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white cursor-pointer"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              <span>샘플 프로젝트 열기</span>
+            </button>
+          )}
+          {rootPath && onTogglePreview && (
+            <button
+              type="button"
+              onClick={onTogglePreview}
+              className="xl:hidden flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-xs font-medium text-zinc-200 cursor-pointer"
+            >
+              <Eye className="w-3.5 h-3.5 text-indigo-400" />
+              <span>{isPreviewVisible ? '프리뷰 닫기' : '프리뷰 열기'}</span>
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -113,6 +157,20 @@ export function CodeEditorPane() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {onTogglePreview && (
+            <button
+              type="button"
+              onClick={onTogglePreview}
+              className={`xl:hidden flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
+                isPreviewVisible
+                  ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-200'
+                  : 'border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-zinc-300'
+              }`}
+            >
+              <Eye className="w-3 h-3 text-indigo-400" />
+              <span>프리뷰</span>
+            </button>
+          )}
           <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
             {language}
           </span>
@@ -134,7 +192,7 @@ export function CodeEditorPane() {
         <Editor
           height="100%"
           theme="vs-dark"
-          path={selectedFilePath}
+          path={scopedModelPath}
           language={language}
           value={currentContent}
           onChange={(val) => updateFileDraft(selectedFilePath, val ?? '')}

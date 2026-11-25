@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { AgentChatPanel } from '@renderer/components/workspace/AgentChatPanel';
 import { FileTree } from '@renderer/components/workspace/FileTree';
@@ -7,6 +8,7 @@ import { useWorkspaceStore } from '@renderer/store/useWorkspaceStore';
 
 export function WorkspaceLayout() {
   const { errorMessage, setErrorMessage } = useWorkspaceStore();
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-zinc-950">
@@ -26,15 +28,21 @@ export function WorkspaceLayout() {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 flex">
+      <div className="relative flex-1 min-h-0 flex">
         <AgentChatPanel />
 
         <div className="flex-1 min-w-0 flex">
           <FileTree />
-          <CodeEditorPane />
+          <CodeEditorPane
+            isPreviewVisible={isPreviewOpen}
+            onTogglePreview={() => setIsPreviewOpen((prev) => !prev)}
+          />
         </div>
 
-        <LivePreviewPane />
+        <LivePreviewPane
+          isMobileOpen={isPreviewOpen}
+          onClose={() => setIsPreviewOpen(false)}
+        />
       </div>
     </div>
   );
